@@ -1638,14 +1638,101 @@ namespace dd {
 		} else if (i > j){
 			return exchange(in, j, i);
 		}
-		// => i < j
 
-		// TODO: implement variable exchange (note that this has to work for vectors as well as matrices represented by the DD)
+        if (in.p == nullptr || in.p->v < j) return in;      
+        if ((i+1) == j) return exchangeBaseCase(in, i, j);
 
-		return in;
-	}
+        unsigned short h = i;
+        unsigned short g = i+1;
 
-	/// Dynamically reorder a given decision diagram with the current variable map using the specific strategy
+        // shuffeling the lower level i up until it is in its position
+        while(g <= j)
+            in = exchangeBaseCase(in, h++, g++);
+
+        // shuffeling the upper level j down until it is in its position
+        while(h >= i)
+            in = exchangeBaseCase(in, h--, g--);
+
+        return in;
+    }
+
+    Edge Package::exchangeBaseCase(Edge in, unsigned short i, unsigned short j){
+        // BASE CASE => (i+1) == j
+        std::queue<Edge> q;
+        std::unordered_set<NodePtr> nodes(NODECOUNT_BUCKETS);
+
+        // collecting nodes
+        // using BFS-Algorithm to scan the given DD
+        q.push(in);
+        while (!q.empty())
+        {
+            Edge e = q.front();
+            // escaping the while-loop here should be possible, since once we hit a node with
+            // level < j we are not going to find any other node with level = j
+            // (this works because the DD always follows the ordering
+            // n-1 > n-2 > ... > 1 > 0 from top to bottom.)
+            /*
+            if (e.p->v < j )
+                break;
+            */
+
+            if (e.p->v == j)
+                nodes.insert(e.p);
+            q.pop();
+
+            for (int x = 0; x < NEDGE; x++)
+            {
+                if (e.p->e[x].p != nullptr)
+                    q.push(e.p->e[x]);
+            }
+        }
+
+        // exchange levels with the collected nodes
+        for (auto it = nodes.begin(); it != nodes.end(); ++it)
+        {
+            NodePtr n = *it;
+            Edge t[NEDGE][NEDGE];
+            n->v = j;
+
+            // creating matrix T
+            for (int x = 0; x < NEDGE; x++)
+            {
+                for (int y = 0; y < NEDGE; y++)
+                {
+                    if (n->e[y].p->v == i)
+                    {
+                        t[x][y] = n->e[y].p->e[x];
+                        auto c = cn.getTempCachedComplex();
+                        CN::mul(c, n->e[y].p->e[x].w, n->e[y].w);
+                        t[x][y].w = cn.lookup(c);
+                    }
+                    else
+                    {
+                        t[x][y] = n->e[y];
+                    }
+                }
+            }
+
+            // creating new nodes and appending corresponding edges
+            for (int x = 0; x < NEDGE; x++)
+            {
+                Edge e{getNode(), CN::ONE};
+                e.p->v = i;
+                for (int y = 0; y < NEDGE; y++)
+                    e.p->e[y] = t[x][y];
+                e = normalize(e, false);
+                e = UTlookup(e);
+                decRef(n->e[x]);
+                n->e[x] = e;
+                incRef(n->e[x]);
+            }
+            garbageCollect();
+        }
+
+        return in;
+    }
+
+    /// Dynamically reorder a given decision diagram with the current variable map using the specific strategy
 	/// \param in decision diagram to reorder
 	/// \param varMap stores the variable mapping. varMap[circuit qubit] = corresponding DD qubit, e.g.
 	///			given the varMap (reversed var. order):
@@ -1674,6 +1761,7 @@ namespace dd {
 	Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap) {
 
     	// TODO: implement sifting technique (using the exchange(...) function)
+        in = exchange(in, 0, 1);
 
     	return in;
 	}
