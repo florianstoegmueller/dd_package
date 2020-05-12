@@ -1726,8 +1726,8 @@ namespace dd {
                 n->e[x] = e;
                 incRef(n->e[x]);
             }
-            garbageCollect();
         }
+        garbageCollect(); // could cause potential problems with big circuits
 
         return in;
     }
@@ -1761,7 +1761,10 @@ namespace dd {
 	Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap) {
 
     	// TODO: implement sifting technique (using the exchange(...) function)
-        in = exchange(in, 0, 1);
+        in = exchange(in, varMap[0], varMap[1]);
+        auto temp = varMap[0];
+        varMap[0] = varMap[1];
+        varMap[1] = temp;
 
     	return in;
 	}
