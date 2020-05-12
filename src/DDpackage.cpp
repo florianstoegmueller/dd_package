@@ -1642,30 +1642,30 @@ namespace dd {
         if (in.p == nullptr || in.p->v < j) return in;      
         if ((i+1) == j) return exchangeBaseCase(in, i, j);
 
-        unsigned short h = i;
-        unsigned short g = i+1;
+        auto h = static_cast<short>(i);
+        auto g = static_cast<short>(i+1);
 
         // shuffeling the lower level i up until it is in its position
-        while(g <= j)
+        while(g < j)
             in = exchangeBaseCase(in, h++, g++);
+        in = exchangeBaseCase(in, h, g);
 
         // shuffeling the upper level j down until it is in its position
-        while(h >= i)
-            in = exchangeBaseCase(in, h--, g--);
+        while(h > i)
+            in = exchangeBaseCase(in, --h, --g);
 
         return in;
     }
 
     Edge Package::exchangeBaseCase(Edge in, unsigned short i, unsigned short j){
         // BASE CASE => (i+1) == j
-        std::queue<Edge> q;
+        std::queue<Edge> q{};
         std::unordered_set<NodePtr> nodes(NODECOUNT_BUCKETS);
 
         // collecting nodes
         // using BFS-Algorithm to scan the given DD
         q.push(in);
-        while (!q.empty())
-        {
+        while (!q.empty()) {
             Edge e = q.front();
             // escaping the while-loop here should be possible, since once we hit a node with
             // level < j we are not going to find any other node with level = j
@@ -1680,51 +1680,42 @@ namespace dd {
                 nodes.insert(e.p);
             q.pop();
 
-            for (int x = 0; x < NEDGE; x++)
-            {
-                if (e.p->e[x].p != nullptr)
-                    q.push(e.p->e[x]);
+            for (auto & x : e.p->e) {
+                if (x.p != nullptr)
+                    q.push(x);
             }
         }
 
         // exchange levels with the collected nodes
-        for (auto it = nodes.begin(); it != nodes.end(); ++it)
-        {
-            NodePtr n = *it;
+        for (auto& node : nodes) {
             Edge t[NEDGE][NEDGE];
-            n->v = j;
+            node->v = static_cast<short>(j);
 
             // creating matrix T
-            for (int x = 0; x < NEDGE; x++)
-            {
-                for (int y = 0; y < NEDGE; y++)
-                {
-                    if (n->e[y].p->v == i)
-                    {
-                        t[x][y] = n->e[y].p->e[x];
+            for (int x = 0; x < NEDGE; x++) {
+                for (int y = 0; y < NEDGE; y++) {
+                    if (node->e[y].p->v == i) {
+                        t[x][y] = node->e[y].p->e[x];
                         auto c = cn.getTempCachedComplex();
-                        CN::mul(c, n->e[y].p->e[x].w, n->e[y].w);
+                        CN::mul(c, node->e[y].p->e[x].w, node->e[y].w);
                         t[x][y].w = cn.lookup(c);
-                    }
-                    else
-                    {
-                        t[x][y] = n->e[y];
+                    } else {
+                        t[x][y] = node->e[y];
                     }
                 }
             }
 
             // creating new nodes and appending corresponding edges
-            for (int x = 0; x < NEDGE; x++)
-            {
+            for (int x = 0; x < NEDGE; x++) {
                 Edge e{getNode(), CN::ONE};
-                e.p->v = i;
+                e.p->v = static_cast<short>(i);
                 for (int y = 0; y < NEDGE; y++)
                     e.p->e[y] = t[x][y];
                 e = normalize(e, false);
                 e = UTlookup(e);
-                decRef(n->e[x]);
-                n->e[x] = e;
-                incRef(n->e[x]);
+                decRef(node->e[x]);
+                node->e[x] = e;
+                incRef(node->e[x]);
             }
         }
         garbageCollect(); // could cause potential problems with big circuits
