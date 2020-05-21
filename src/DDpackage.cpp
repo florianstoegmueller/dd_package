@@ -1764,15 +1764,7 @@ namespace dd {
         int nodeCount[n];
         std::vector<std::pair<int, int>> nodeCountVec;
 
-<<<<<<< HEAD
-    	// TODO: implement sifting technique (using the exchange(...) function)
-        in = exchange(in, varMap[0], varMap[1]);
-        auto temp = varMap[0];
-        varMap[0] = varMap[1];
-        varMap[1] = temp;
-=======
         for (int i = 0; i < n; i++) nodeCount[i] = 0;
->>>>>>> tmp
 
         // counting nodes
         // using BFS-Algorithm to scan the given DD
