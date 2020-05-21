@@ -1657,6 +1657,7 @@ namespace dd {
         return in;
     }
 
+    // don't call this function, call exchange() instead!
     Edge Package::exchangeBaseCase(Edge in, unsigned short i, unsigned short j){
         // BASE CASE => (i+1) == j
         std::queue<Edge> q{};
@@ -1713,7 +1714,8 @@ namespace dd {
                     e.p->e[y] = t[x][y];
                 e = normalize(e, false);
                 e = UTlookup(e);
-                decRef(node->e[x]);
+                decRef(node->e[x]); // causing problems when performing reordering after every operation
+                                    // generally:  ref counting needs some rethinking
                 node->e[x] = e;
                 incRef(node->e[x]);
             }
@@ -1732,14 +1734,18 @@ namespace dd {
 	/// 			2->0
 	/// 		the circuit operation "H q[0]" leads to the DD equivalent to "H q[varMap[0]]" = "H q[2]".
 	///			the qubits in the decision diagram are always ordered as n-1 > n-2 > ... > 1 > 0
+	/// \param outMap output permutation stores the expected variable mapping at the end of the computation, i.e. from which line to read which qubit.
+	///			similar to varMap this map needs to be changed when exchanging two levels 
 	/// \param strat strategy to apply
-	/// \return the resulting decision diagram (and the changed variable map, which is returned as reference)
-	Edge Package::dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat) {
+	/// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
+	Edge Package::dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap, DynamicReorderingStrategy strat) {
     	switch (strat) {
 			case None:
 				return in;
 			case Sifting:
-				return sifting(in, varMap);
+				return sifting(in, varMap, outMap);
+            case Random:
+                return random(in, varMap, outMap);
 		}
 
 		return in;
@@ -1748,12 +1754,131 @@ namespace dd {
 	/// Apply sifting dynamic reordering to a decision diagram given the current variable map
 	/// \param in decision diagram to apply sifting to
 	/// \param varMap stores the variable mapping (cf. dynamicReorder(...))
-	/// \return the resulting decision diagram (and the changed variable map, which is returned as reference)
-	Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap) {
+	/// \param outMap output permutation stores the expected variable mapping at the end of the computation (cf. dynamicReorder(...))
+	/// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
+	Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap) {
+        //std::cout << "Size before: " << size(in) << "\n";
+        std::unordered_set<NodePtr> visited(NODECOUNT_BUCKETS);
+        std::queue<Edge> q{};
+        int n = in.p->v + 1;
+        int nodeCount[n];
+        std::vector<std::pair<int, int>> nodeCountVec;
 
-    	// TODO: implement sifting technique (using the exchange(...) function)
-        in = exchange(in, 0, 1);
+        for (int i = 0; i < n; i++) nodeCount[i] = 0;
 
-    	return in;
-	}
+        // counting nodes
+        // using BFS-Algorithm to scan the given DD
+        q.push(in);
+        while (!q.empty()) {
+            Edge e = q.front();
+            if (!visited.count(e.p)) nodeCount[e.p->v]++;
+            visited.insert(e.p);
+            q.pop();
+
+            for (auto& x : e.p->e)
+                if (x.p != nullptr) q.push(x);
+        }
+
+        for (int i = 0; i < n; i++)
+            nodeCountVec.push_back(std::make_pair(i, nodeCount[varMap[i]]));
+
+        // sorting nodes
+        // nodes with most occurences first
+        std::sort(nodeCountVec.begin(), nodeCountVec.end(),
+                    [](auto& left, auto& right) {
+                        return left.second > right.second;
+                    });
+
+        // sifting each variable
+        for (auto variable : nodeCountVec) {
+            int pos = variable.first;
+            int optimalPos = pos;
+            unsigned int min = size(in);
+
+            // sifting to bottom
+            while (pos > 0) {
+                exchange(in, varMap[pos], varMap[pos - 1]);
+
+                unsigned short temp = varMap[pos];
+                varMap[pos] = varMap[pos - 1];
+                varMap[pos - 1] = temp;
+                temp = outMap[pos];
+                outMap[pos] = outMap[pos - 1];
+                outMap[pos - 1] = temp;
+
+                pos--;
+                unsigned int s = size(in);
+                if (s < min) {
+                    min = s;
+                    optimalPos = pos;
+                }
+            }
+
+            // sifting to top
+            while (pos < n - 1) {
+                exchange(in, varMap[pos], varMap[pos + 1]);
+
+                unsigned short temp = varMap[pos];
+                varMap[pos] = varMap[pos + 1];
+                varMap[pos + 1] = temp;
+                temp = outMap[pos];
+                outMap[pos] = outMap[pos + 1];
+                outMap[pos + 1] = temp;
+
+                pos++;
+                unsigned int s = size(in);
+                if (s < min) {
+                    min = s;
+                    optimalPos = pos;
+                }
+            }
+
+            // sifting to optimal position
+            while (pos > optimalPos) {
+                exchange(in, varMap[pos], varMap[pos - 1]);
+
+                unsigned short temp = varMap[pos];
+                varMap[pos] = varMap[pos - 1];
+                varMap[pos - 1] = temp;
+                temp = outMap[pos];
+                outMap[pos] = outMap[pos - 1];
+                outMap[pos - 1] = temp;
+
+                pos--;
+            }
+        }
+        //std::cout << "Size after: " << size(in) << "\n";
+        return in;
+    }
+
+    Edge Package::random(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap) {
+        int n = (in.p->v + 1);
+        unsigned int min = size(in);
+        srand(time(NULL));
+
+        std::cout << "Size before: " << size(in) << "\n";
+        for (int x = 0; x < 100; x++) {
+            int i = rand() % n;
+            int j = rand() % n;
+
+            in = exchange(in, varMap[i], varMap[j]);
+
+            unsigned int s = size(in);
+            if (min > s) {
+                std::cout << "exchanging\n";
+                min = s;
+
+                unsigned short temp = varMap[i];
+                varMap[i] = varMap[j];
+                varMap[j] = temp;
+                temp = outMap[i];
+                outMap[i] = outMap[j];
+                outMap[j] = temp;
+            } else {
+                in = exchange(in, varMap[j], varMap[i]);
+            }
+        }
+        std::cout << "Size after: " << size(in) << "\n";
+        return in;
+    }
 }
