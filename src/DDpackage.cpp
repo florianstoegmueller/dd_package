@@ -1668,15 +1668,14 @@ namespace dd {
         q.push(in);
         while (!q.empty()) {
             Edge e = q.front();
-            // escaping the while-loop here should be possible, since once we hit a node with
-            // level < j we are not going to find any other node with level = j
+            // escaping the while-loop once we hit a node with level < j,
+            // because we are not going to find any other node with level = j
             // (this works because the DD always follows the ordering
             // n-1 > n-2 > ... > 1 > 0 from top to bottom.)
-            /*
             if (e.p->v < j )
                 break;
-            */
 
+            // might also check for don't care nodes, i.e. a node with no i-child
             if (e.p->v == j)
                 nodes.insert(e.p);
             q.pop();
@@ -1689,7 +1688,7 @@ namespace dd {
 
         // exchange levels with the collected nodes
         for (auto& node : nodes) {
-            Edge t[NEDGE][NEDGE];
+            Edge t[NEDGE][NEDGE], newEdges[NEDGE];
             node->v = static_cast<short>(j);
 
             // creating matrix T
@@ -1701,24 +1700,21 @@ namespace dd {
                         CN::mul(c, node->e[y].p->e[x].w, node->e[y].w);
                         t[x][y].w = cn.lookup(c);
                     } else {
+                        // edge pointing to a terminal or skipped variable
                         t[x][y] = node->e[y];
                     }
                 }
             }
 
             // creating new nodes and appending corresponding edges
+            // important: increment before decrementing
             for (int x = 0; x < NEDGE; x++) {
-                Edge e{getNode(), CN::ONE};
-                e.p->v = static_cast<short>(i);
-                for (int y = 0; y < NEDGE; y++)
-                    e.p->e[y] = t[x][y];
-                e = normalize(e, false);
-                e = UTlookup(e);
-                decRef(node->e[x]); // causing problems when performing reordering after every operation
-                                    // generally:  ref counting needs some rethinking
-                node->e[x] = e;
-                incRef(node->e[x]);
+                newEdges[x] = makeNonterminal(i, t[x], false);
+                incRef(newEdges[x]);
             }
+            for (int x = 0; x < NEDGE; x++)
+                decRef(node->e[x]);
+            memcpy(node->e, newEdges, NEDGE * sizeof(Edge));
         }
         garbageCollect(); // could cause potential problems with big circuits
 
@@ -1751,103 +1747,146 @@ namespace dd {
 		return in;
 	}
 
-	/// Apply sifting dynamic reordering to a decision diagram given the current variable map
-	/// \param in decision diagram to apply sifting to
-	/// \param varMap stores the variable mapping (cf. dynamicReorder(...))
-	/// \param outMap output permutation stores the expected variable mapping at the end of the computation (cf. dynamicReorder(...))
-	/// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
-	Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap) {
-        //std::cout << "Size before: " << size(in) << "\n";
+    /// Apply sifting dynamic reordering to a decision diagram given the
+    /// current variable map \param in decision diagram to apply sifting to
+    /// \param varMap stores the variable mapping (cf. dynamicReorder(...))
+    /// \param outMap output permutation stores the expected variable mapping at the end of the computation (cf. dynamicReorder(...))
+    /// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
+    Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap) {
         std::unordered_set<NodePtr> visited(NODECOUNT_BUCKETS);
+        std::map<unsigned short, unsigned short> invVarMap;
+        std::map<unsigned short, unsigned short> invOutMap;
         std::queue<Edge> q{};
         int n = in.p->v + 1;
         int nodeCount[n];
-        std::vector<std::pair<int, int>> nodeCountVec;
+        bool free[n];
 
+        for (int i = 0; i < n; i++) free[i] = true;
         for (int i = 0; i < n; i++) nodeCount[i] = 0;
+        for (auto i = varMap.begin(); i != varMap.end(); ++i)
+            invVarMap[i->second] = i->first;
+        for (auto i = outMap.begin(); i != outMap.end(); ++i)
+            invOutMap[i->second] = i->first;
 
-        // counting nodes
-        // using BFS-Algorithm to scan the given DD
-        q.push(in);
-        while (!q.empty()) {
-            Edge e = q.front();
-            if (!visited.count(e.p)) nodeCount[e.p->v]++;
-            visited.insert(e.p);
-            q.pop();
+        for (int i = 0; i < n; i++) {
+            int pos, optimalPos, originalPos;
+            int max = -1;
+            unsigned int ddSize = size(in);
+            unsigned int min = ddSize;
 
-            for (auto& x : e.p->e)
-                if (x.p != nullptr) q.push(x);
-        }
+            // counting nodes
+            // using BFS-Algorithm to scan the given DD
+            q.push(in);
+            while (!q.empty()) {
+                Edge e = q.front();
+                if (!visited.count(e.p)) nodeCount[e.p->v]++;
+                visited.insert(e.p);
+                q.pop();
 
-        for (int i = 0; i < n; i++)
-            nodeCountVec.push_back(std::make_pair(i, nodeCount[varMap[i]]));
+                for (auto& x : e.p->e)
+                    if (x.p != nullptr) q.push(x);
+            }
 
-        // sorting nodes
-        // nodes with most occurences first
-        std::sort(nodeCountVec.begin(), nodeCountVec.end(),
-                    [](auto& left, auto& right) {
-                        return left.second > right.second;
-                    });
+            for (int j = 0; j < n; j++) {
+                if (free[j] && nodeCount[j] > max) {  // maybe use active-array
+                                                      // instead of nodeCount
+                    max = nodeCount[j];
+                    pos = j;
+                }
+            }
+            free[pos] = false;
+            optimalPos = pos;
+            originalPos = pos;
 
-        // sifting each variable
-        for (auto variable : nodeCountVec) {
-            int pos = variable.first;
-            int optimalPos = pos;
-            unsigned int min = size(in);
+            if (pos < n / 2) {  // variable is in lower half -> sifting to
+                                // bottom first
+                // sifting to bottom
+                while (pos > 0) {
+                    exchange(in, pos, pos - 1);
+                    pos--;
+                    ddSize = size(in);
+                    if (ddSize < min) {
+                        min = ddSize;
+                        optimalPos = pos;
+                    }
+                }
 
-            // sifting to bottom
-            while (pos > 0) {
-                exchange(in, varMap[pos], varMap[pos - 1]);
+                // sifting to top
+                while (pos < n - 1) {
+                    exchange(in, pos, pos + 1);
+                    pos++;
+                    ddSize = size(in);
+                    if (ddSize < min) {
+                        min = ddSize;
+                        optimalPos = pos;
+                    }
+                }
 
-                unsigned short temp = varMap[pos];
-                varMap[pos] = varMap[pos - 1];
-                varMap[pos - 1] = temp;
-                temp = outMap[pos];
-                outMap[pos] = outMap[pos - 1];
-                outMap[pos - 1] = temp;
+                // sifting to optimal position
+                while (pos > optimalPos) {
+                    exchange(in, pos, pos - 1);
+                    pos--;
+                }
+            } else {  // variable is in upper half -> sifting to top first
+                // sifting to top
+                while (pos < n - 1) {
+                    exchange(in, pos, pos + 1);
+                    pos++;
+                    ddSize = size(in);
+                    if (ddSize < min) {
+                        min = ddSize;
+                        optimalPos = pos;
+                    }
+                }
 
-                pos--;
-                unsigned int s = size(in);
-                if (s < min) {
-                    min = s;
-                    optimalPos = pos;
+                // sifting to bottom
+                while (pos > 0) {
+                    exchange(in, pos, pos - 1);
+                    pos--;
+                    ddSize = size(in);
+                    if (ddSize < min) {
+                        min = ddSize;
+                        optimalPos = pos;
+                    }
+                }
+
+                // sifting to optimal position
+                while (pos < optimalPos) {
+                    exchange(in, pos, pos + 1);
+                    pos++;
                 }
             }
 
-            // sifting to top
-            while (pos < n - 1) {
-                exchange(in, varMap[pos], varMap[pos + 1]);
-
-                unsigned short temp = varMap[pos];
-                varMap[pos] = varMap[pos + 1];
-                varMap[pos + 1] = temp;
-                temp = outMap[pos];
-                outMap[pos] = outMap[pos + 1];
-                outMap[pos + 1] = temp;
-
-                pos++;
-                unsigned int s = size(in);
-                if (s < min) {
-                    min = s;
-                    optimalPos = pos;
+            // Adjusting varMap and outMap if position changed
+            if (optimalPos > originalPos) {
+                int tempVar = invVarMap[originalPos];
+                int tempOut = invOutMap[originalPos];
+                for (int i = originalPos; i < optimalPos; i++) {
+                    invVarMap[i] = invVarMap[i + 1];
+                    varMap[invVarMap[i]] = i;
+                    invOutMap[i] = invOutMap[i + 1];
+                    outMap[invOutMap[i]] = i;
                 }
-            }
-
-            // sifting to optimal position
-            while (pos > optimalPos) {
-                exchange(in, varMap[pos], varMap[pos - 1]);
-
-                unsigned short temp = varMap[pos];
-                varMap[pos] = varMap[pos - 1];
-                varMap[pos - 1] = temp;
-                temp = outMap[pos];
-                outMap[pos] = outMap[pos - 1];
-                outMap[pos - 1] = temp;
-
-                pos--;
+                invVarMap[optimalPos] = tempVar;
+                varMap[invVarMap[optimalPos]] = optimalPos;
+                invOutMap[optimalPos] = tempOut;
+                outMap[invOutMap[optimalPos]] = optimalPos;
+            } else if (optimalPos < originalPos) {
+                int tempVar = invVarMap[originalPos];
+                int tempOut = invOutMap[originalPos];
+                for (int i = originalPos; i > optimalPos; i--) {
+                    invVarMap[i] = invVarMap[i - 1];
+                    varMap[invVarMap[i]] = i;
+                    invOutMap[i] = invOutMap[i - 1];
+                    outMap[invOutMap[i]] = i;
+                }
+                invVarMap[optimalPos] = tempVar;
+                varMap[invVarMap[optimalPos]] = optimalPos;
+                invOutMap[optimalPos] = tempOut;
+                outMap[invOutMap[optimalPos]] = optimalPos;
             }
         }
-        //std::cout << "Size after: " << size(in) << "\n";
+
         return in;
     }
 
