@@ -17,6 +17,7 @@
 #include <iostream>
 #include <map>
 #include <queue>
+#include <numeric>
 
 #include "DDcomplex.h"
 
@@ -158,7 +159,7 @@ namespace dd {
 	    Edge trace(Edge a, short v, const std::bitset<MAXN>& eliminate);
 	    Edge kronecker2(Edge x, Edge y);
 
-	    void checkSpecialMatrices(Edge &e);
+	    void checkSpecialMatrices(NodePtr p);
 	    Edge UTlookup(Edge& e);
 	    Edge CTlookup(const Edge& a, const Edge& b, CTkind which);
 	    void CTinsert(const Edge& a, const Edge& b, const Edge& r, CTkind which);
@@ -296,6 +297,7 @@ namespace dd {
 	    void printActive(int n);
 	    void printDD(Edge e, unsigned int limit);
 	    void export2Dot(Edge basic, const char *outputFilename, bool isVector = false, bool show = true);
+	    void printUniqueTable(unsigned short n);
 
 	    // statistics and info
 	    void statistics();
