@@ -303,7 +303,6 @@ namespace dd {
 	    void printVector(Edge e);
 	    void printActive(int n);
 	    void printDD(Edge e, unsigned int limit);
-	    void export2Dot(Edge basic, const char *outputFilename, bool isVector = false, bool show = true);
 	    void printUniqueTable(unsigned short n);
 
 	    void toDot(Edge e, std::ostream& oss, bool isVector = false);

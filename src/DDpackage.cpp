@@ -5,6 +5,9 @@
 
 #include "DDpackage.h"
 
+#include <ctime>
+#include <cstdlib>
+
 namespace dd {
 
 	Node Package::terminal{ nullptr, {{ nullptr, CN::ZERO}, { nullptr, CN::ZERO }, { nullptr, CN::ZERO }, { nullptr, CN::ZERO }}, 0, -1, true, true};
@@ -2065,12 +2068,12 @@ namespace dd {
     Edge Package::random(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap) {
         int n = (in.p->v + 1);
         unsigned int min = size(in);
-        srand(time(NULL));
+        std::srand(std::time(nullptr));
 
         std::cout << "Size before: " << size(in) << "\n";
         for (int x = 0; x < 100; x++) {
-            int i = rand() % n;
-            int j = rand() % n;
+            int i = std::rand() % n;
+            int j = std::rand() % n;
 
             in = exchange(in, varMap[i], varMap[j]);
 
