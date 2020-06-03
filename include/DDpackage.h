@@ -17,6 +17,9 @@
 #include <iostream>
 #include <map>
 #include <queue>
+#include <numeric>
+#include <queue>
+#include <set>
 
 #include "DDcomplex.h"
 
@@ -47,7 +50,7 @@ namespace dd {
 	    NodePtr p;
 	    Complex w;
     };
-	
+
     struct Node {
 	    NodePtr next;         // link for unique table and available space chain
 	    Edge e[NEDGE];     // edges out of this node
@@ -64,6 +67,12 @@ namespace dd {
 	    ListElementPtr next;
 	    int w;
     };
+
+	struct NodeSetElement {
+		intptr_t id = 0;
+		short v = -1;
+		NodeSetElement(intptr_t id, short v): id(id), v(v) {};
+	};
 
     // computed table definitions
     // compute table entry kinds
@@ -158,7 +167,7 @@ namespace dd {
 	    Edge trace(Edge a, short v, const std::bitset<MAXN>& eliminate);
 	    Edge kronecker2(Edge x, Edge y);
 
-	    void checkSpecialMatrices(Edge &e);
+	    void checkSpecialMatrices(NodePtr p);
 	    Edge UTlookup(Edge& e);
 	    Edge CTlookup(const Edge& a, const Edge& b, CTkind which);
 	    void CTinsert(const Edge& a, const Edge& b, const Edge& r, CTkind which);
@@ -179,7 +188,6 @@ namespace dd {
 	    unsigned int nodeCount(Edge e, std::unordered_set<NodePtr>& visited) const;
 	    ComplexValue getVectorElement(Edge e, unsigned long long int element);
 	    ListElementPtr newListElement();
-	    void toDot(Edge e, std::ostream& oss, bool isVector = false);
 
     public:
         constexpr static Edge DDone{ terminalNode, ComplexNumbers::ONE };
@@ -248,7 +256,7 @@ namespace dd {
 	    /// 		the circuit operation "H q[0]" leads to the DD equivalent to "H q[varMap[0]]" = "H q[2]".
 	    ///			the qubits in the decision diagram are always ordered as n-1 > n-2 > ... > 1 > 0
 		/// \param outMap output permutation stores the expected variable mapping at the end of the computation, i.e. from which line to read which qubit.
-		///			similar to varMap this map needs to be changed when exchanging two levels 
+		///			similar to varMap this map needs to be changed when exchanging two levels
 	    /// \param strat strategy to apply
 	    /// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
 	    Edge dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap, DynamicReorderingStrategy strat = None);
@@ -295,7 +303,12 @@ namespace dd {
 	    void printVector(Edge e);
 	    void printActive(int n);
 	    void printDD(Edge e, unsigned int limit);
-	    void export2Dot(Edge basic, const char *outputFilename, bool isVector = false, bool show = true);
+	    void printUniqueTable(unsigned short n);
+
+	    void toDot(Edge e, std::ostream& oss, bool isVector = false);
+	    static void toDot2(const Edge& e, std::ostream& oss, bool isVector = false, bool edgeLabels=false);
+	    void export2Dot(Edge basic, const std::string& outputFilename, bool isVector = false, bool show = true);
+	    static void export2Dot2(Edge basic, const std::string& outputFilename, bool isVector = false, bool edgeLabels=false, bool show = true);
 
 	    // statistics and info
 	    void statistics();

@@ -5,6 +5,9 @@
 
 #include "DDpackage.h"
 
+#include <ctime>
+#include <cstdlib>
+
 namespace dd {
 
 	Node Package::terminal{ nullptr, {{ nullptr, CN::ZERO}, { nullptr, CN::ZERO }, { nullptr, CN::ZERO }, { nullptr, CN::ZERO }}, 0, -1, true, true};
@@ -127,6 +130,91 @@ namespace dd {
         std::cout << std::flush;
     }
 
+	void Package::toDot2(const Edge& e, std::ostream& oss, bool isVector, bool edgeLabels) {
+		// header, root and terminal declaration
+		oss << "digraph \"DD\" { node[shape=none, center=true, margin=0]\n";
+		oss << "root [label=\"\", shape=point, style=invis]\n";
+		oss << "t [label=\"1\", shape=box, tooltip=\"1\", width=0.4, height=0.4]\n";
+		oss << "root -> \"" << e.p << "\" [tooltip=\"" << e.w << "\"";
+		if (!CN::equalsOne(e.w)) {
+			oss << ", color=blue, style=dashed, label=\" " << e.w << "\"";
+		}
+		oss << "]\n\n";
+
+		// node set (comparator)
+		auto cmp = [](const NodeSetElement& left, const NodeSetElement& right) {
+			return left.v < right.v || (left.v == right.v && (unsigned long) left.id < (unsigned long) right.id);
+		};
+		std::set<NodeSetElement, decltype(cmp)> nodes(cmp);
+
+		// priority queue (comparator)
+		auto priocmp = [] (const dd::Edge* left, const dd::Edge* right) { return left->p->v < right->p->v; };
+		std::priority_queue<const dd::Edge*, std::vector<const dd::Edge*>, decltype(priocmp)> q(priocmp);
+		q.push(&e);
+		
+		// bfs until finished
+		while (!q.empty()) {
+			auto node = q.top();
+			q.pop();
+
+			// base case
+			if (isTerminal(*node))
+				continue;
+
+			// check if node has already been processed
+			auto ret = nodes.emplace((intptr_t)node->p, node->p->v);
+			if (!ret.second) continue;
+
+			// node definition as HTML-like label (href=" " is used as workaround to make tooltips work)
+			oss << "\"" << node->p << "\" [label=<\n\t";
+			if (isVector) {
+				oss << R"(<table border="0" cellborder="1" cellspacing="0" cellpadding="1">)";
+				oss << "\n\t\t<tr><td colspan=\"2\" bgcolor=\"lightgray\">q" << node->p->v << "</td></tr>\n";
+				oss << "\t\t<tr>";
+				oss << R"(<td port="0" tooltip=")" << node->p->e[0].w << R"(" href=" ">0</td>)";
+				oss << R"(<td port="2" tooltip=")" << node->p->e[2].w << R"(" href=" ">1</td>)";
+			} else {
+				oss << R"(<table border="0" cellborder="1" cellspacing="0" cellpadding="0">)";
+				oss << "\n\t\t<tr><td colspan=\"4\" bgcolor=\"lightgray\">q" << node->p->v << "</td></tr>\n";
+				oss << "\t\t<tr>";
+				oss << R"(<td port="0" tooltip=")" << node->p->e[0].w << R"(" href=" ">00</td>)";
+				oss << R"(<td port="1" tooltip=")" << node->p->e[1].w << R"(" href=" ">10</td>)";
+				oss << R"(<td port="2" tooltip=")" << node->p->e[2].w << R"(" href=" ">01</td>)";
+				oss << R"(<td port="3" tooltip=")" << node->p->e[3].w << R"(" href=" ">11</td>)";
+			}
+			oss << "</tr>\n\t</table>>, tooltip=\"q" << node->p->v << "\"]\n\n";
+
+			// iterate over edges in reverse to guarantee correct processing order
+			for (short i=dd::NEDGE-1; i >= 0; --i) {
+				if (isVector && i%2 != 0)
+					continue;
+
+				auto& edge = node->p->e[i];
+				if (CN::equalsZero(edge.w))
+					continue;
+
+				// non-zero edge to be included
+				q.push(&edge);
+				if (isVector) {
+					oss << "\"" << node->p << "\":" << i << ":";
+					oss << (i==0? "sw" : "se") << " -> ";
+				} else {
+					oss << "\"" << node->p << "\":" << i << ":s -> ";
+				}
+				dd::Package::isTerminal(edge)?	oss << "t": oss << "\"" << edge.p << "\"";
+				oss << " [tooltip=\"" << edge.w << "\"";
+				if (!CN::equalsOne(edge.w)) {
+					oss << ", color=blue, style=dashed";
+					if (edgeLabels) {
+						oss << ", label=\"" << edge.w << "\"";
+					}
+				}
+				oss << "]\n";
+			}
+			oss << "\n";
+		}
+		oss << "}\n" << std::flush;
+	}
 
     void Package::toDot(Edge e, std::ostream& oss, bool isVector) {
         /* first part of dot file*/
@@ -268,20 +356,34 @@ namespace dd {
 
     // export a DD in .dot format to the file specified by outputFilename
     // and call DOT->SVG export (optional, requires dot package)
-    void Package::export2Dot(Edge basic, const char *outputFilename, bool isVector, bool show) {
+    void Package::export2Dot(Edge basic, const std::string& outputFilename, bool isVector, bool show) {
         std::ofstream init(outputFilename);
 	    toDot(basic, init, isVector);
         init.close();
 
         if (show) {
             std::ostringstream oss;
-            oss << "dot -Tsvg " << outputFilename << " -o " << outputFilename << ".svg";
+            oss << "dot -Tsvg " << outputFilename << " -o " << outputFilename.substr(0, outputFilename.find_last_of('.')) << ".svg";
             auto str = oss.str(); // required to avoid immediate deallocation of temporary
             static_cast<void>(!std::system(str.c_str())); // cast and ! just to suppress the unused result warning
         }
     }
 
-    Edge Package::makeZeroState(unsigned short n) {
+	void Package::export2Dot2(Edge basic, const std::string& outputFilename, bool isVector, bool edgeLabels, bool show) {
+		std::ofstream init(outputFilename);
+		toDot2(basic, init, isVector, edgeLabels);
+		init.close();
+
+		if (show) {
+			std::ostringstream oss;
+			oss << "dot -Tsvg " << outputFilename << " -o " << outputFilename.substr(0, outputFilename.find_last_of('.')) << ".svg";
+			auto str = oss.str(); // required to avoid immediate deallocation of temporary
+			static_cast<void>(!std::system(str.c_str())); // cast and ! just to suppress the unused result warning
+		}
+    }
+
+
+	Edge Package::makeZeroState(unsigned short n) {
         Edge f = DDone;
         Edge edges[4];
         edges[1] = edges[2] = edges[3] = DDzero;
@@ -447,14 +549,14 @@ namespace dd {
 	        } else if (e.p->e[j].p != nullptr && !zero[j]) {
 		        if (cached) {
 			        cn.releaseCached(e.p->e[j].w);
-                    cn.div(e.p->e[j].w, e.p->e[j].w, e.w);
+                    CN::div(e.p->e[j].w, e.p->e[j].w, e.w);
                     e.p->e[j].w = cn.lookup(e.p->e[j].w);
                     if (e.p->e[j].w == CN::ZERO) {
                         e.p->e[j] = DDzero;
                     }
                 } else {
        	            Complex c = cn.getTempCachedComplex();
-                    cn.div(c, e.p->e[j].w, e.w);
+                    CN::div(c, e.p->e[j].w, e.w);
                     e.p->e[j].w = cn.lookup(c);
                     if (e.p->e[j].w == CN::ZERO) {
                         e.p->e[j] = DDzero;
@@ -512,7 +614,7 @@ namespace dd {
 	        peaknodecount = nodecount;
 
         if (!isTerminal(e))
-        	checkSpecialMatrices(e);
+        	checkSpecialMatrices(e.p);
 
         return e;                // and return
     }
@@ -1295,7 +1397,7 @@ namespace dd {
 	    e = makeNonterminal(varOrder[z], em);  // target line
         for (z++; z < n; z++) { // go through lines above target
             if (line[w = varOrder[z]] >= 0) { //  control line above target in DD
-                Edge temp = makeIdent(0, z - 1);
+                Edge temp = makeIdent(0, static_cast<short>(z - 1));
                 for (int i = 0; i < RADIX; i++) {
                     for (int j = 0; j < RADIX; j++) {
                         if (i == j) {
@@ -1344,9 +1446,9 @@ namespace dd {
 				for (int i2 = 0; i2 < RADIX; i2++) {
 					int i = i1 * RADIX + i2;
 					if (line[w] == 0) { // neg. control
-						em[i] = makeNonterminal(w, { em[i], DDzero, DDzero, (i1 == i2) ? makeIdent(0, z - 1) : DDzero });
+						em[i] = makeNonterminal(w, { em[i], DDzero, DDzero, (i1 == i2) ? makeIdent(0, static_cast<short>(z - 1)) : DDzero });
 					} else if (line[w] == 1) { // pos. control
-						em[i] = makeNonterminal(w, { (i1 == i2) ? makeIdent(0, z - 1) : DDzero, DDzero, DDzero, em[i] });
+						em[i] = makeNonterminal(w, { (i1 == i2) ? makeIdent(0, static_cast<short>(z - 1)) : DDzero, DDzero, DDzero, em[i] });
 					} else { // not connected
 						em[i] = makeNonterminal(w, { em[i], DDzero, DDzero, em[i] });
 					}
@@ -1361,9 +1463,9 @@ namespace dd {
 		for (z++; z < n; z++) {
 			w = varOrder[z];
 			if (line[w] == 0) { //  neg. control
-				e = makeNonterminal(w, { e, DDzero, DDzero, makeIdent(0, z - 1) });
+				e = makeNonterminal(w, { e, DDzero, DDzero, makeIdent(0, static_cast<short>(z - 1)) });
 			} else if (line[w] == 1) { // pos. control
-				e = makeNonterminal(w, { makeIdent(0, z - 1), DDzero, DDzero, e });
+				e = makeNonterminal(w, { makeIdent(0, static_cast<short>(z - 1)), DDzero, DDzero, e });
 			} else { // not connected
 				e = makeNonterminal(w, { e, DDzero, DDzero, e });
 			}
@@ -1510,9 +1612,9 @@ namespace dd {
 		    return r;
 
     	if (x.p->ident) {
-			r = makeNonterminal(y.p->v+1, {y, DDzero, DDzero, y});
+			r = makeNonterminal(static_cast<short>(y.p->v+1), {y, DDzero, DDzero, y});
 			for (int i = 0; i < x.p->v; ++i) {
-				r = makeNonterminal(r.p->v+1, {r, DDzero, DDzero, r});
+				r = makeNonterminal(static_cast<short>(r.p->v+1), {r, DDzero, DDzero, r});
 			}
 
 			r.w = cn.getCachedComplex(CN::val(y.w.r),CN::val(y.w.i));
@@ -1525,15 +1627,15 @@ namespace dd {
 		Edge e2 = kronecker2(x.p->e[2],y);
 		Edge e3 = kronecker2(x.p->e[3],y);
 
-		r = makeNonterminal(y.p->v+x.p->v+1, {e0, e1, e2, e3}, true);
+		r = makeNonterminal(static_cast<short>(y.p->v+x.p->v+1), {e0, e1, e2, e3}, true);
 	    CN::mul(r.w, r.w, x.w);
 		CTinsert(x,y,r,kron);
 		return r;
     }
 
 	Edge Package::extend(Edge e, unsigned short h, unsigned short l) {
-  	    Edge f = (l>0)? kronecker(e, makeIdent(0,l-1)) : e;
-  	    Edge g = (h>0)? kronecker(makeIdent(0, h-1), f): f;
+  	    Edge f = (l>0)? kronecker(e, makeIdent(0,static_cast<short>(l-1))) : e;
+  	    Edge g = (h>0)? kronecker(makeIdent(0, static_cast<short>(h-1)), f): f;
   	    return g;
     }
 
@@ -1554,11 +1656,11 @@ namespace dd {
     		if (v == w) {
 			    Edge r = DDzero;
 			    //std::cout << cn.cacheCount << " ";
-			    auto t0 = trace(a.p->e[0], v - 1, eliminate);
+			    auto t0 = trace(a.p->e[0], static_cast<short>(v - 1), eliminate);
 			    r = add2(r, t0);
 			    auto r1 = r;
 			    //std::cout << "-> " << cn.cacheCount << " ";
-			    auto t1 = trace(a.p->e[3], v - 1, eliminate);
+			    auto t1 = trace(a.p->e[3], static_cast<short>(v - 1), eliminate);
 			    r = add2(r, t1);
 			    auto r2 = r;
 			    //std::cout << "-> " << cn.cacheCount << std::endl;
@@ -1573,20 +1675,20 @@ namespace dd {
 
 			    return r;
     		} else {
-			    Edge r = trace(a, v - 1, eliminate);
+			    Edge r = trace(a, static_cast<short>(v - 1), eliminate);
                 CN::mul(r.w, r.w, cn.getTempCachedComplex(RADIX, 0));
 			    return r;
     		}
     	} else {
     		if (v == w) {
-			    Edge r = makeNonterminal(a.p->v, { trace(a.p->e[0], v - 1, eliminate),
-			                                       trace(a.p->e[1], v - 1, eliminate),
-			                                       trace(a.p->e[2], v - 1, eliminate),
-			                                       trace(a.p->e[3], v - 1, eliminate) }, false);
+			    Edge r = makeNonterminal(a.p->v, { trace(a.p->e[0], static_cast<short>(v - 1), eliminate),
+			                                       trace(a.p->e[1], static_cast<short>(v - 1), eliminate),
+			                                       trace(a.p->e[2], static_cast<short>(v - 1), eliminate),
+			                                       trace(a.p->e[3], static_cast<short>(v - 1), eliminate) }, false);
                 CN::mul(r.w, r.w, a.w);
 			    return r;
 		    } else {
-			    return trace(a,v-1,eliminate);
+			    return trace(a,static_cast<short>(v-1),eliminate);
     		}
     	}
     }
@@ -1608,18 +1710,18 @@ namespace dd {
         return {dd::ComplexNumbers::val(c.r), dd::ComplexNumbers::val(c.i)};
     }
 
-	void Package::checkSpecialMatrices(Edge &e) {
-		e.p->ident = false;       // assume not identity
-		e.p->symm = false;           // assume symmetric
+	void Package::checkSpecialMatrices(NodePtr p) {
+		p->ident = false;       // assume not identity
+		p->symm = false;           // assume symmetric
 
 		/****************** CHECK IF Symmetric MATRIX *****************/
-		if (!e.p->e[0].p->symm || !e.p->e[3].p->symm) return;
-		if (!equals(transpose(e.p->e[1]), e.p->e[2])) return;
-		e.p->symm = true;
+		if (!p->e[0].p->symm || !p->e[3].p->symm) return;
+		if (!equals(transpose(p->e[1]), p->e[2])) return;
+		p->symm = true;
 
 		/****************** CHECK IF Identity MATRIX ***********************/
-		if(!(e.p->e[0].p->ident) || (e.p->e[1].w) != CN::ZERO || (e.p->e[2].w) != CN::ZERO || (e.p->e[0].w) != CN::ONE || (e.p->e[3].w) != CN::ONE || !(e.p->e[3].p->ident)) return;
-		e.p->ident = true;
+		if(!(p->e[0].p->ident) || (p->e[1].w) != CN::ZERO || (p->e[2].w) != CN::ZERO || (p->e[0].w) != CN::ONE || (p->e[3].w) != CN::ONE || !(p->e[3].p->ident)) return;
+		p->ident = true;
 	}
 
 	/// exchange levels i and j of a decision diagram by pointer manipulation.
@@ -1661,36 +1763,28 @@ namespace dd {
     Edge Package::exchangeBaseCase(Edge in, unsigned short i, unsigned short j){
         // BASE CASE => (i+1) == j
         std::queue<Edge> q{};
-        std::unordered_set<NodePtr> nodes(NODECOUNT_BUCKETS);
-
+        std::unordered_set<NodePtr> nodes(active[j]); // better than 2e6
         // collecting nodes
         // using BFS-Algorithm to scan the given DD
         q.push(in);
         while (!q.empty()) {
             Edge e = q.front();
-            // escaping the while-loop once we hit a node with level < j,
-            // because we are not going to find any other node with level = j
-            // (this works because the DD always follows the ordering
-            // n-1 > n-2 > ... > 1 > 0 from top to bottom.)
-            if (e.p->v < j )
-                break;
-
-            // might also check for don't care nodes, i.e. a node with no i-child
-            if (e.p->v == j)
-                nodes.insert(e.p);
             q.pop();
 
-            for (auto & x : e.p->e) {
-                if (x.p != nullptr)
-                    q.push(x);
+            if (e.p->v == j) {
+	            if (!nodes.insert(e.p).second)
+		            continue; // continue immediately if a duplicate node is detected
+            } else {
+            	for (auto & x : e.p->e) {
+		            if (x.p != nullptr && !isTerminal(x))  // ignore (0) terminals
+		            	q.push(x);
+	            }
             }
         }
 
         // exchange levels with the collected nodes
+	    Edge t[NEDGE][NEDGE]{}, newEdges[NEDGE]{};
         for (auto& node : nodes) {
-            Edge t[NEDGE][NEDGE], newEdges[NEDGE];
-            node->v = static_cast<short>(j);
-
             // creating matrix T
             for (int x = 0; x < NEDGE; x++) {
                 for (int y = 0; y < NEDGE; y++) {
@@ -1706,15 +1800,99 @@ namespace dd {
                 }
             }
 
+            // calculate old unique table hash key
+		    std::uintptr_t old_key = 0;
+		    for (unsigned int k = 0; k < NEDGE; ++k) {
+			    old_key += ((std::uintptr_t) (node->e[k].p) >> k)
+			           + ((std::uintptr_t) (node->e[k].w.r) >> k)
+			           + ((std::uintptr_t) (node->e[k].w.i) >> (k + 1));
+		    }
+		    old_key = old_key & HASHMASK;
+
             // creating new nodes and appending corresponding edges
             // important: increment before decrementing
-            for (int x = 0; x < NEDGE; x++) {
-                newEdges[x] = makeNonterminal(i, t[x], false);
+            for (int x = 0; x < NEDGE; ++x) {
+                newEdges[x] = makeNonterminal(static_cast<short>(i), t[x]);
                 incRef(newEdges[x]);
             }
-            for (int x = 0; x < NEDGE; x++)
-                decRef(node->e[x]);
+            for (auto & x : node->e)
+                decRef(x);
             memcpy(node->e, newEdges, NEDGE * sizeof(Edge));
+
+		    // calculate new unique table hash key
+		    std::uintptr_t new_key = 0;
+		    for (unsigned int k = 0; k < NEDGE; ++k) {
+			    new_key += ((std::uintptr_t) (node->e[k].p) >> k)
+			           + ((std::uintptr_t) (node->e[k].w.r) >> k)
+			           + ((std::uintptr_t) (node->e[k].w.i) >> (k + 1));
+		    }
+		    new_key = new_key & HASHMASK;
+
+		    if (old_key == new_key) /// assumption: same hash means nothing changed
+			    continue;
+
+		    // find pointer to old collision chain
+		    NodePtr p = Unique[j][old_key];
+		    if (p == node) {
+			    Unique[j][old_key] = p->next; // remove from beginning
+		    } else {
+			    while (p != nullptr) {
+			    	NodePtr oldp = p;
+			    	p = p->next;
+				    if (p == node) {
+					    oldp->next = p->next; // remove node from this chain
+					    break;
+				    }
+			    }
+		    }
+
+		    // add node to new collision chain
+		    p = Unique[j][new_key];
+		    while (p != nullptr) {
+			    if (std::memcmp(node->e, p->e, NEDGE * sizeof(Edge)) == 0) {
+					// this exact node already occurs in the unique table
+					// replace all occurences of 'node' in the DD with the unique table entry
+					if (j == in.p->v) {
+						decRef(in);
+						in.p = p;
+						incRef(in);
+					} else {
+						assert(q.empty());
+						std::unordered_set<NodePtr> processed(activeNodeCount);
+						q.push(in);
+						while (!q.empty()) {
+							Edge e = q.front();
+							q.pop();
+							if (e.p->v == j+1) {
+								for (auto& x: e.p->e) {
+									if (x.p == node) {
+										decRef(x);
+										x.p = p;
+										incRef(x);
+									}
+								}
+								continue;
+							}
+
+							for (auto & x : e.p->e) {
+								if (x.p != nullptr && !isTerminal(x)) {
+									if(!processed.insert(x.p).second)
+										continue; // skip duplicate insertions into queue
+									q.push(x);
+								}
+							}
+						}
+					}
+					break;
+			    }
+		    	p = p->next;
+		    }
+
+		    if (p == nullptr) { // reached end of collision chain and found no equivalent node
+			    node->next = Unique[j][new_key];
+			    Unique[j][new_key] = node;
+			    checkSpecialMatrices(node); // potentially every edge pointing to the new node has to be renormalized.
+		    }
         }
         garbageCollect(); // could cause potential problems with big circuits
 
@@ -1753,41 +1931,39 @@ namespace dd {
     /// \param outMap output permutation stores the expected variable mapping at the end of the computation (cf. dynamicReorder(...))
     /// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
     Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap) {
-        std::unordered_set<NodePtr> visited(NODECOUNT_BUCKETS);
-        std::map<unsigned short, unsigned short> invVarMap;
-        std::map<unsigned short, unsigned short> invOutMap;
+        std::unordered_set<NodePtr> visited(activeNodeCount); // better than 2e6
+        std::map<unsigned short, unsigned short> invVarMap{}, invOutMap{};
         std::queue<Edge> q{};
-        int n = in.p->v + 1;
-        int nodeCount[n];
-        bool free[n];
+        const auto n = static_cast<short>(in.p->v + 1);
+        std::vector<unsigned int> nodeCount(n);
+        std::vector<bool> free(n, true);
 
-        for (int i = 0; i < n; i++) free[i] = true;
-        for (int i = 0; i < n; i++) nodeCount[i] = 0;
-        for (auto i = varMap.begin(); i != varMap.end(); ++i)
-            invVarMap[i->second] = i->first;
-        for (auto i = outMap.begin(); i != outMap.end(); ++i)
-            invOutMap[i->second] = i->first;
+	    for (const auto & i : varMap)
+		    invVarMap[i.second] = i.first;
+        for (const auto & i : outMap)
+	        invOutMap[i.second] = i.first;
 
-        for (int i = 0; i < n; i++) {
-            int pos, optimalPos, originalPos;
-            int max = -1;
-            unsigned int ddSize = size(in);
-            unsigned int min = ddSize;
-
-            // counting nodes
-            // using BFS-Algorithm to scan the given DD
+        short pos = -1, optimalPos, originalPos;
+	    unsigned int  ddSize, min, max;
+	    for (int i = 0; i < n; ++i) {
+		    // counting nodes using BFS-Algorithm to scan the given DD
+            std::fill(nodeCount.begin(), nodeCount.end(), 0u);
+            visited.clear();
             q.push(in);
             while (!q.empty()) {
                 Edge e = q.front();
-                if (!visited.count(e.p)) nodeCount[e.p->v]++;
-                visited.insert(e.p);
+                if(visited.insert(e.p).second) ++nodeCount[e.p->v];
                 q.pop();
 
                 for (auto& x : e.p->e)
-                    if (x.p != nullptr) q.push(x);
+                    if (x.p != nullptr && !isTerminal(x)) q.push(x);
             }
 
-            for (int j = 0; j < n; j++) {
+            ddSize = std::accumulate(nodeCount.begin(), nodeCount.end(), 1u); // start from 1 to account for terminal
+		    min = ddSize;
+
+		    max = 0;
+		    for (short j = 0; j < n; j++) {
                 if (free[j] && nodeCount[j] > max) {  // maybe use active-array
                                                       // instead of nodeCount
                     max = nodeCount[j];
@@ -1798,12 +1974,11 @@ namespace dd {
             optimalPos = pos;
             originalPos = pos;
 
-            if (pos < n / 2) {  // variable is in lower half -> sifting to
-                                // bottom first
+		    if (pos < n / 2) {  // variable is in lower half -> sifting to bottom first
                 // sifting to bottom
                 while (pos > 0) {
-                    exchange(in, pos, pos - 1);
-                    pos--;
+                	in = exchangeBaseCase(in, pos-1, pos);
+                    --pos;
                     ddSize = size(in);
                     if (ddSize < min) {
                         min = ddSize;
@@ -1813,8 +1988,8 @@ namespace dd {
 
                 // sifting to top
                 while (pos < n - 1) {
-                    exchange(in, pos, pos + 1);
-                    pos++;
+	                in = exchangeBaseCase(in, pos, pos+1);
+                    ++pos;
                     ddSize = size(in);
                     if (ddSize < min) {
                         min = ddSize;
@@ -1824,14 +1999,14 @@ namespace dd {
 
                 // sifting to optimal position
                 while (pos > optimalPos) {
-                    exchange(in, pos, pos - 1);
-                    pos--;
+	                in = exchangeBaseCase(in, pos-1, pos);
+                    --pos;
                 }
             } else {  // variable is in upper half -> sifting to top first
                 // sifting to top
                 while (pos < n - 1) {
-                    exchange(in, pos, pos + 1);
-                    pos++;
+	                in = exchangeBaseCase(in, pos, pos+1);
+                    ++pos;
                     ddSize = size(in);
                     if (ddSize < min) {
                         min = ddSize;
@@ -1841,8 +2016,8 @@ namespace dd {
 
                 // sifting to bottom
                 while (pos > 0) {
-                    exchange(in, pos, pos - 1);
-                    pos--;
+	                in = exchangeBaseCase(in, pos-1, pos);
+                    --pos;
                     ddSize = size(in);
                     if (ddSize < min) {
                         min = ddSize;
@@ -1852,33 +2027,33 @@ namespace dd {
 
                 // sifting to optimal position
                 while (pos < optimalPos) {
-                    exchange(in, pos, pos + 1);
-                    pos++;
+	                in = exchangeBaseCase(in, pos, pos+1);
+                    ++pos;
                 }
             }
 
             // Adjusting varMap and outMap if position changed
             if (optimalPos > originalPos) {
-                int tempVar = invVarMap[originalPos];
-                int tempOut = invOutMap[originalPos];
-                for (int i = originalPos; i < optimalPos; i++) {
-                    invVarMap[i] = invVarMap[i + 1];
-                    varMap[invVarMap[i]] = i;
-                    invOutMap[i] = invOutMap[i + 1];
-                    outMap[invOutMap[i]] = i;
+                auto tempVar = invVarMap[originalPos];
+                auto tempOut = invOutMap[originalPos];
+                for (int j = originalPos; j < optimalPos; ++j) {
+                    invVarMap[j] = invVarMap[j + 1];
+                    varMap[invVarMap[j]] = j;
+                    invOutMap[j] = invOutMap[j + 1];
+                    outMap[invOutMap[j]] = j;
                 }
                 invVarMap[optimalPos] = tempVar;
                 varMap[invVarMap[optimalPos]] = optimalPos;
                 invOutMap[optimalPos] = tempOut;
                 outMap[invOutMap[optimalPos]] = optimalPos;
             } else if (optimalPos < originalPos) {
-                int tempVar = invVarMap[originalPos];
-                int tempOut = invOutMap[originalPos];
-                for (int i = originalPos; i > optimalPos; i--) {
-                    invVarMap[i] = invVarMap[i - 1];
-                    varMap[invVarMap[i]] = i;
-                    invOutMap[i] = invOutMap[i - 1];
-                    outMap[invOutMap[i]] = i;
+                auto tempVar = invVarMap[originalPos];
+                auto tempOut = invOutMap[originalPos];
+                for (int j = originalPos; j > optimalPos; --j) {
+                    invVarMap[j] = invVarMap[j - 1];
+                    varMap[invVarMap[j]] = j;
+                    invOutMap[j] = invOutMap[j - 1];
+                    outMap[invOutMap[j]] = j;
                 }
                 invVarMap[optimalPos] = tempVar;
                 varMap[invVarMap[optimalPos]] = optimalPos;
@@ -1893,12 +2068,12 @@ namespace dd {
     Edge Package::random(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap) {
         int n = (in.p->v + 1);
         unsigned int min = size(in);
-        srand(time(NULL));
+        std::srand(std::time(nullptr));
 
         std::cout << "Size before: " << size(in) << "\n";
         for (int x = 0; x < 100; x++) {
-            int i = rand() % n;
-            int j = rand() % n;
+            int i = std::rand() % n;
+            int j = std::rand() % n;
 
             in = exchange(in, varMap[i], varMap[j]);
 
@@ -1919,5 +2094,22 @@ namespace dd {
         }
         std::cout << "Size after: " << size(in) << "\n";
         return in;
+    }
+
+    void Package::printUniqueTable(unsigned short n) {
+	    std::cout << "Unique Table: " << std::endl;
+    	for (int i = n-1; i >=0; --i) {
+		    auto& unique = Unique[i];
+		    std::cout << "\t" << i << ":" << std::endl;
+		    for (const auto& node: unique) {
+		    	auto p = node;
+		    	while (p != nullptr) {
+				    std::cout << "\t\t" << (uintptr_t)p << " " << p->ref << "\t";
+				    p = p->next;
+			    }
+		    	if (node != nullptr)
+		    	    std::cout << std::endl;
+		    }
+	    }
     }
 }
