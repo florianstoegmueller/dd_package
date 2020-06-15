@@ -1908,18 +1908,16 @@ namespace dd {
 	/// 			2->0
 	/// 		the circuit operation "H q[0]" leads to the DD equivalent to "H q[varMap[0]]" = "H q[2]".
 	///			the qubits in the decision diagram are always ordered as n-1 > n-2 > ... > 1 > 0
-	/// \param outMap output permutation stores the expected variable mapping at the end of the computation, i.e. from which line to read which qubit.
-	///			similar to varMap this map needs to be changed when exchanging two levels 
 	/// \param strat strategy to apply
 	/// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
-	Edge Package::dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap, DynamicReorderingStrategy strat) {
+	Edge Package::dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat) {
     	switch (strat) {
 			case None:
 				return in;
 			case Sifting:
-				return sifting(in, varMap, outMap);
+				return sifting(in, varMap);
             case Random:
-                return random(in, varMap, outMap);
+                return random(in, varMap);
 		}
 
 		return in;
@@ -1928,23 +1926,21 @@ namespace dd {
     /// Apply sifting dynamic reordering to a decision diagram given the
     /// current variable map \param in decision diagram to apply sifting to
     /// \param varMap stores the variable mapping (cf. dynamicReorder(...))
-    /// \param outMap output permutation stores the expected variable mapping at the end of the computation (cf. dynamicReorder(...))
     /// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
-    Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap) {
+    Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap) {
         std::unordered_set<NodePtr> visited(activeNodeCount); // better than 2e6
-        std::map<unsigned short, unsigned short> invVarMap{}, invOutMap{};
+        std::map<unsigned short, unsigned short> invVarMap{};
         std::queue<Edge> q{};
         const auto n = static_cast<short>(in.p->v + 1);
-        std::vector<unsigned int> nodeCount(n);
+        std::vector<unsigned int> nodeCount(n); // maybe use active-array instead of nodeCount
         std::vector<bool> free(n, true);
 
 	    for (const auto & i : varMap)
 		    invVarMap[i.second] = i.first;
-        for (const auto & i : outMap)
-	        invOutMap[i.second] = i.first;
 
         short pos = -1, optimalPos, originalPos;
-	    unsigned int  ddSize, min, max;
+	    unsigned int max;
+        unsigned long min;
 	    for (int i = 0; i < n; ++i) {
 		    // counting nodes using BFS-Algorithm to scan the given DD
             std::fill(nodeCount.begin(), nodeCount.end(), 0u);
@@ -1959,13 +1955,10 @@ namespace dd {
                     if (x.p != nullptr && !isTerminal(x)) q.push(x);
             }
 
-            ddSize = std::accumulate(nodeCount.begin(), nodeCount.end(), 1u); // start from 1 to account for terminal
-		    min = ddSize;
-
+            min = activeNodeCount;
 		    max = 0;
 		    for (short j = 0; j < n; j++) {
-                if (free[j] && nodeCount[j] > max) {  // maybe use active-array
-                                                      // instead of nodeCount
+                if (free[j] && nodeCount[j] > max) {
                     max = nodeCount[j];
                     pos = j;
                 }
@@ -1979,9 +1972,8 @@ namespace dd {
                 while (pos > 0) {
                 	in = exchangeBaseCase(in, pos-1, pos);
                     --pos;
-                    ddSize = size(in);
-                    if (ddSize < min) {
-                        min = ddSize;
+                    if (activeNodeCount < min) {
+                        min = activeNodeCount;
                         optimalPos = pos;
                     }
                 }
@@ -1990,9 +1982,8 @@ namespace dd {
                 while (pos < n - 1) {
 	                in = exchangeBaseCase(in, pos, pos+1);
                     ++pos;
-                    ddSize = size(in);
-                    if (ddSize < min) {
-                        min = ddSize;
+                    if (activeNodeCount < min) {
+                        min = activeNodeCount;
                         optimalPos = pos;
                     }
                 }
@@ -2007,9 +1998,8 @@ namespace dd {
                 while (pos < n - 1) {
 	                in = exchangeBaseCase(in, pos, pos+1);
                     ++pos;
-                    ddSize = size(in);
-                    if (ddSize < min) {
-                        min = ddSize;
+                    if (activeNodeCount < min) {
+                        min = activeNodeCount;
                         optimalPos = pos;
                     }
                 }
@@ -2018,9 +2008,8 @@ namespace dd {
                 while (pos > 0) {
 	                in = exchangeBaseCase(in, pos-1, pos);
                     --pos;
-                    ddSize = size(in);
-                    if (ddSize < min) {
-                        min = ddSize;
+                    if (activeNodeCount < min) {
+                        min = activeNodeCount;
                         optimalPos = pos;
                     }
                 }
@@ -2035,64 +2024,65 @@ namespace dd {
             // Adjusting varMap and outMap if position changed
             if (optimalPos > originalPos) {
                 auto tempVar = invVarMap[originalPos];
-                auto tempOut = invOutMap[originalPos];
                 for (int j = originalPos; j < optimalPos; ++j) {
                     invVarMap[j] = invVarMap[j + 1];
                     varMap[invVarMap[j]] = j;
-                    invOutMap[j] = invOutMap[j + 1];
-                    outMap[invOutMap[j]] = j;
                 }
                 invVarMap[optimalPos] = tempVar;
                 varMap[invVarMap[optimalPos]] = optimalPos;
-                invOutMap[optimalPos] = tempOut;
-                outMap[invOutMap[optimalPos]] = optimalPos;
             } else if (optimalPos < originalPos) {
                 auto tempVar = invVarMap[originalPos];
-                auto tempOut = invOutMap[originalPos];
                 for (int j = originalPos; j > optimalPos; --j) {
                     invVarMap[j] = invVarMap[j - 1];
                     varMap[invVarMap[j]] = j;
-                    invOutMap[j] = invOutMap[j - 1];
-                    outMap[invOutMap[j]] = j;
                 }
                 invVarMap[optimalPos] = tempVar;
                 varMap[invVarMap[optimalPos]] = optimalPos;
-                invOutMap[optimalPos] = tempOut;
-                outMap[invOutMap[optimalPos]] = optimalPos;
             }
         }
 
         return in;
     }
 
-    Edge Package::random(Edge in, std::map<unsigned short, unsigned short>& varMap, std::map<unsigned short, unsigned short>& outMap) {
+    /// First counts the number of nodes in the given DD. 
+    /// Then a loop is executed nodeCount-many times and inside
+    /// this loop two randomly selcted levels are swap.
+    Edge Package::random(Edge in, std::map<unsigned short, unsigned short>& varMap) {
         int n = (in.p->v + 1);
-        unsigned int min = size(in);
+        unsigned long min = activeNodeCount;
+        std::unordered_set<NodePtr> visited(activeNodeCount); 
+        std::queue<Edge> q{};
+        int nodeCount = 0;
         std::srand(std::time(nullptr));
 
-        std::cout << "Size before: " << size(in) << "\n";
-        for (int x = 0; x < 100; x++) {
+        visited.clear();
+        q.push(in);
+        while (!q.empty()) {
+            Edge e = q.front();
+            if(visited.insert(e.p).second) ++nodeCount;
+            q.pop();
+
+            for (auto& x : e.p->e)
+                if (x.p != nullptr && !isTerminal(x)) q.push(x);
+        }
+
+        for (int x = 0; x < nodeCount; x++) {
             int i = std::rand() % n;
             int j = std::rand() % n;
 
             in = exchange(in, varMap[i], varMap[j]);
 
-            unsigned int s = size(in);
-            if (min > s) {
-                std::cout << "exchanging\n";
-                min = s;
+            if (min > activeNodeCount) {
+                min = activeNodeCount;
 
                 unsigned short temp = varMap[i];
                 varMap[i] = varMap[j];
                 varMap[j] = temp;
-                temp = outMap[i];
-                outMap[i] = outMap[j];
-                outMap[j] = temp;
             } else {
                 in = exchange(in, varMap[j], varMap[i]);
             }
         }
-        std::cout << "Size after: " << size(in) << "\n";
+
         return in;
     }
 
