@@ -2021,7 +2021,7 @@ namespace dd {
                 }
             }
 
-            // Adjusting varMap and outMap if position changed
+            // Adjusting varMap if position changed
             if (optimalPos > originalPos) {
                 auto tempVar = invVarMap[originalPos];
                 for (int j = originalPos; j < optimalPos; ++j) {
