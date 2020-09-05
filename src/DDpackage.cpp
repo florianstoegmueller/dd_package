@@ -5,6 +5,9 @@
 
 #include "DDpackage.h"
 
+#include <ctime>
+#include <cstdlib>
+
 namespace dd {
 
 	Node Package::terminal{ nullptr, {{ nullptr, CN::ZERO}, { nullptr, CN::ZERO }, { nullptr, CN::ZERO }, { nullptr, CN::ZERO }}, 0, -1, true, true};
@@ -1694,14 +1697,166 @@ namespace dd {
 		} else if (i > j){
 			return exchange(in, j, i);
 		}
-		// => i < j
 
-		// TODO: implement variable exchange (note that this has to work for vectors as well as matrices represented by the DD)
+        if (in.p == nullptr || in.p->v < j) return in;
+        if ((i+1) == j) return exchangeBaseCase(in, i, j);
 
-		return in;
-	}
+        auto h = static_cast<short>(i);
+        auto g = static_cast<short>(i+1);
 
-	/// Dynamically reorder a given decision diagram with the current variable map using the specific strategy
+        // shuffeling the lower level i up until it is in its position
+        while(g < j)
+            in = exchangeBaseCase(in, h++, g++);
+        in = exchangeBaseCase(in, h, g);
+
+        // shuffeling the upper level j down until it is in its position
+        while(h > i)
+            in = exchangeBaseCase(in, --h, --g);
+
+        return in;
+    }
+
+    // don't call this function, call exchange() instead!
+    Edge Package::exchangeBaseCase(Edge in, unsigned short i, unsigned short j){
+        // BASE CASE => (i+1) == j
+        std::queue<Edge> q{};
+        std::unordered_set<NodePtr> nodes(active[j]); // better than 2e6
+        // collecting nodes
+        // using BFS-Algorithm to scan the given DD
+        q.push(in);
+        while (!q.empty()) {
+            Edge e = q.front();
+            q.pop();
+
+            if (e.p->v == j) {
+	            if (!nodes.insert(e.p).second)
+		            continue; // continue immediately if a duplicate node is detected
+            } else {
+            	for (auto & x : e.p->e) {
+		            if (x.p != nullptr && !isTerminal(x))  // ignore (0) terminals
+		            	q.push(x);
+	            }
+            }
+        }
+
+        // exchange levels with the collected nodes
+	    Edge t[NEDGE][NEDGE]{}, newEdges[NEDGE]{};
+        for (auto& node : nodes) {
+            // creating matrix T
+            for (int x = 0; x < NEDGE; x++) {
+                for (int y = 0; y < NEDGE; y++) {
+                    if (node->e[y].p->v == i) {
+                        t[x][y] = node->e[y].p->e[x];
+                        auto c = cn.getTempCachedComplex();
+                        CN::mul(c, node->e[y].p->e[x].w, node->e[y].w);
+                        t[x][y].w = cn.lookup(c);
+                    } else {
+                        // edge pointing to a terminal or skipped variable
+                        t[x][y] = node->e[y];
+                    }
+                }
+            }
+
+            // calculate old unique table hash key
+		    std::uintptr_t old_key = 0;
+		    for (unsigned int k = 0; k < NEDGE; ++k) {
+			    old_key += ((std::uintptr_t) (node->e[k].p) >> k)
+			           + ((std::uintptr_t) (node->e[k].w.r) >> k)
+			           + ((std::uintptr_t) (node->e[k].w.i) >> (k + 1));
+		    }
+		    old_key = old_key & HASHMASK;
+
+            // creating new nodes and appending corresponding edges
+            // important: increment before decrementing
+            for (int x = 0; x < NEDGE; ++x) {
+                newEdges[x] = makeNonterminal(static_cast<short>(i), t[x]);
+                incRef(newEdges[x]);
+            }
+            for (auto & x : node->e)
+                decRef(x);
+            memcpy(node->e, newEdges, NEDGE * sizeof(Edge));
+
+		    // calculate new unique table hash key
+		    std::uintptr_t new_key = 0;
+		    for (unsigned int k = 0; k < NEDGE; ++k) {
+			    new_key += ((std::uintptr_t) (node->e[k].p) >> k)
+			           + ((std::uintptr_t) (node->e[k].w.r) >> k)
+			           + ((std::uintptr_t) (node->e[k].w.i) >> (k + 1));
+		    }
+		    new_key = new_key & HASHMASK;
+
+		    if (old_key == new_key) /// assumption: same hash means nothing changed
+			    continue;
+
+		    // find pointer to old collision chain
+		    NodePtr p = Unique[j][old_key];
+		    if (p == node) {
+			    Unique[j][old_key] = p->next; // remove from beginning
+		    } else {
+			    while (p != nullptr) {
+			    	NodePtr oldp = p;
+			    	p = p->next;
+				    if (p == node) {
+					    oldp->next = p->next; // remove node from this chain
+					    break;
+				    }
+			    }
+		    }
+
+		    // add node to new collision chain
+		    p = Unique[j][new_key];
+		    while (p != nullptr) {
+			    if (std::memcmp(node->e, p->e, NEDGE * sizeof(Edge)) == 0) {
+					// this exact node already occurs in the unique table
+					// replace all occurences of 'node' in the DD with the unique table entry
+					if (j == in.p->v) {
+						decRef(in);
+						in.p = p;
+						incRef(in);
+					} else {
+						assert(q.empty());
+						std::unordered_set<NodePtr> processed(activeNodeCount);
+						q.push(in);
+						while (!q.empty()) {
+							Edge e = q.front();
+							q.pop();
+							if (e.p->v == j+1) {
+								for (auto& x: e.p->e) {
+									if (x.p == node) {
+										decRef(x);
+										x.p = p;
+										incRef(x);
+									}
+								}
+								continue;
+							}
+
+							for (auto & x : e.p->e) {
+								if (x.p != nullptr && !isTerminal(x)) {
+									if(!processed.insert(x.p).second)
+										continue; // skip duplicate insertions into queue
+									q.push(x);
+								}
+							}
+						}
+					}
+					break;
+			    }
+		    	p = p->next;
+		    }
+
+		    if (p == nullptr) { // reached end of collision chain and found no equivalent node
+			    node->next = Unique[j][new_key];
+			    Unique[j][new_key] = node;
+			    checkSpecialMatrices(node); // potentially every edge pointing to the new node has to be renormalized.
+		    }
+        }
+        garbageCollect(); // could cause potential problems with big circuits
+
+        return in;
+    }
+
+    /// Dynamically reorder a given decision diagram with the current variable map using the specific strategy
 	/// \param in decision diagram to reorder
 	/// \param varMap stores the variable mapping. varMap[circuit qubit] = corresponding DD qubit, e.g.
 	///			given the varMap (reversed var. order):
@@ -1711,43 +1866,197 @@ namespace dd {
 	/// 		the circuit operation "H q[0]" leads to the DD equivalent to "H q[varMap[0]]" = "H q[2]".
 	///			the qubits in the decision diagram are always ordered as n-1 > n-2 > ... > 1 > 0
 	/// \param strat strategy to apply
-	/// \return the resulting decision diagram (and the changed variable map, which is returned as reference)
+	/// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
 	Edge Package::dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat) {
     	switch (strat) {
 			case None:
 				return in;
 			case Sifting:
 				return sifting(in, varMap);
+            case Random:
+                return random(in, varMap);
 		}
 
 		return in;
 	}
 
-	/// Apply sifting dynamic reordering to a decision diagram given the current variable map
-	/// \param in decision diagram to apply sifting to
-	/// \param varMap stores the variable mapping (cf. dynamicReorder(...))
-	/// \return the resulting decision diagram (and the changed variable map, which is returned as reference)
-	Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap) {
+    /// Apply sifting dynamic reordering to a decision diagram given the
+    /// current variable map \param in decision diagram to apply sifting to
+    /// \param varMap stores the variable mapping (cf. dynamicReorder(...))
+    /// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
+    Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap) {
+        std::unordered_set<NodePtr> visited(activeNodeCount); // better than 2e6
+        std::map<unsigned short, unsigned short> invVarMap{};
+        std::queue<Edge> q{};
+        const auto n = static_cast<short>(in.p->v + 1);
+        std::vector<unsigned int> nodeCount(n); // maybe use active-array instead of nodeCount
+        std::vector<bool> free(n, true);
 
-    	// TODO: implement sifting technique (using the exchange(...) function)
+	    for (const auto & i : varMap)
+		    invVarMap[i.second] = i.first;
 
-    	return in;
-	}
+        short pos = -1, optimalPos, originalPos;
+	    unsigned int max;
+        unsigned long min;
+	    for (int i = 0; i < n; ++i) {
+		    // counting nodes using BFS-Algorithm to scan the given DD
+            std::fill(nodeCount.begin(), nodeCount.end(), 0u);
+            visited.clear();
+            q.push(in);
+            while (!q.empty()) {
+                Edge e = q.front();
+                if(visited.insert(e.p).second) ++nodeCount[e.p->v];
+                q.pop();
 
-	void Package::printUniqueTable(unsigned short n) {
-		std::cout << "Unique Table: " << std::endl;
-		for (int i = n-1; i >=0; --i) {
-			auto& unique = Unique[i];
-			std::cout << "\t" << i << ":" << std::endl;
-			for (const auto& node: unique) {
-				auto p = node;
-				while (p != nullptr) {
-					std::cout << "\t\t" << (uintptr_t)p << " " << p->ref << "\t";
-					p = p->next;
-				}
-				if (node != nullptr)
-					std::cout << std::endl;
-			}
-		}
-	}
+                for (auto& x : e.p->e)
+                    if (x.p != nullptr && !isTerminal(x)) q.push(x);
+            }
+
+            min = activeNodeCount;
+		    max = 0;
+		    for (short j = 0; j < n; j++) {
+                if (free[j] && nodeCount[j] > max) {
+                    max = nodeCount[j];
+                    pos = j;
+                }
+            }
+            free[pos] = false;
+            optimalPos = pos;
+            originalPos = pos;
+
+		    if (pos < n / 2) {  // variable is in lower half -> sifting to bottom first
+                // sifting to bottom
+                while (pos > 0) {
+                	in = exchangeBaseCase(in, pos-1, pos);
+                    --pos;
+                    if (activeNodeCount < min) {
+                        min = activeNodeCount;
+                        optimalPos = pos;
+                    }
+                }
+
+                // sifting to top
+                while (pos < n - 1) {
+	                in = exchangeBaseCase(in, pos, pos+1);
+                    ++pos;
+                    if (activeNodeCount < min) {
+                        min = activeNodeCount;
+                        optimalPos = pos;
+                    }
+                }
+
+                // sifting to optimal position
+                while (pos > optimalPos) {
+	                in = exchangeBaseCase(in, pos-1, pos);
+                    --pos;
+                }
+            } else {  // variable is in upper half -> sifting to top first
+                // sifting to top
+                while (pos < n - 1) {
+	                in = exchangeBaseCase(in, pos, pos+1);
+                    ++pos;
+                    if (activeNodeCount < min) {
+                        min = activeNodeCount;
+                        optimalPos = pos;
+                    }
+                }
+
+                // sifting to bottom
+                while (pos > 0) {
+	                in = exchangeBaseCase(in, pos-1, pos);
+                    --pos;
+                    if (activeNodeCount < min) {
+                        min = activeNodeCount;
+                        optimalPos = pos;
+                    }
+                }
+
+                // sifting to optimal position
+                while (pos < optimalPos) {
+	                in = exchangeBaseCase(in, pos, pos+1);
+                    ++pos;
+                }
+            }
+
+            // Adjusting varMap if position changed
+            if (optimalPos > originalPos) {
+                auto tempVar = invVarMap[originalPos];
+                for (int j = originalPos; j < optimalPos; ++j) {
+                    invVarMap[j] = invVarMap[j + 1];
+                    varMap[invVarMap[j]] = j;
+                }
+                invVarMap[optimalPos] = tempVar;
+                varMap[invVarMap[optimalPos]] = optimalPos;
+            } else if (optimalPos < originalPos) {
+                auto tempVar = invVarMap[originalPos];
+                for (int j = originalPos; j > optimalPos; --j) {
+                    invVarMap[j] = invVarMap[j - 1];
+                    varMap[invVarMap[j]] = j;
+                }
+                invVarMap[optimalPos] = tempVar;
+                varMap[invVarMap[optimalPos]] = optimalPos;
+            }
+        }
+
+        return in;
+    }
+
+    /// First counts the number of nodes in the given DD.
+    /// Then a loop is executed nodeCount-many times and inside
+    /// this loop two randomly selcted levels are swap.
+    Edge Package::random(Edge in, std::map<unsigned short, unsigned short>& varMap) {
+        int n = (in.p->v + 1);
+        unsigned long min = activeNodeCount;
+        std::unordered_set<NodePtr> visited(activeNodeCount);
+        std::queue<Edge> q{};
+        int nodeCount = 0;
+        std::srand(std::time(nullptr));
+
+        visited.clear();
+        q.push(in);
+        while (!q.empty()) {
+            Edge e = q.front();
+            if(visited.insert(e.p).second) ++nodeCount;
+            q.pop();
+
+            for (auto& x : e.p->e)
+                if (x.p != nullptr && !isTerminal(x)) q.push(x);
+        }
+
+        for (int x = 0; x < nodeCount; x++) {
+            int i = std::rand() % n;
+            int j = std::rand() % n;
+
+            in = exchange(in, varMap[i], varMap[j]);
+
+            if (min > activeNodeCount) {
+                min = activeNodeCount;
+
+                unsigned short temp = varMap[i];
+                varMap[i] = varMap[j];
+                varMap[j] = temp;
+            } else {
+                in = exchange(in, varMap[j], varMap[i]);
+            }
+        }
+
+        return in;
+    }
+
+    void Package::printUniqueTable(unsigned short n) {
+	    std::cout << "Unique Table: " << std::endl;
+    	for (int i = n-1; i >=0; --i) {
+		    auto& unique = Unique[i];
+		    std::cout << "\t" << i << ":" << std::endl;
+		    for (const auto& node: unique) {
+		    	auto p = node;
+		    	while (p != nullptr) {
+				    std::cout << "\t\t" << (uintptr_t)p << " " << p->ref << "\t";
+				    p = p->next;
+			    }
+		    	if (node != nullptr)
+		    	    std::cout << std::endl;
+		    }
+	    }
+    }
 }

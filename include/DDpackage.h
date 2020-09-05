@@ -17,6 +17,7 @@
 #include <iostream>
 #include <map>
 #include <queue>
+#include <numeric>
 #include <set>
 
 #include "DDcomplex.h"
@@ -116,7 +117,7 @@ namespace dd {
     };
 
 	enum DynamicReorderingStrategy {
-		None, Sifting
+		None, Sifting, Random
 	};
 
 	enum Mode {
@@ -181,7 +182,6 @@ namespace dd {
 
 	    void checkSpecialMatrices(NodePtr p);
 	    Edge& UTlookup(Edge& e);
-
 
 	    static inline unsigned long CThash(const Edge& a, const Edge& b, const CTkind which) {
 		    const uintptr_t node_pointer = ((uintptr_t) a.p + (uintptr_t) b.p) >> 3u;
@@ -261,6 +261,7 @@ namespace dd {
 	    /// 		n-1 > n-2 > ... > 1 > 0 from top to bottom.
 	    ///			the caller of this function is responsible for keeping track of the variable exchanges (cf. dynamicReorder(...))
 	    Edge exchange(Edge in, unsigned short i, unsigned short j);
+		Edge exchangeBaseCase(Edge in, unsigned short i, unsigned short j);
 
 	    /// Dynamically reorder a given decision diagram with the current variable map using the specific strategy
 	    /// \param in decision diagram to reorder
@@ -280,6 +281,7 @@ namespace dd {
 	    /// \param varMap stores the variable mapping (cf. dynamicReorder(...))
 	    /// \return the resulting decision diagram (and the changed variable map, which is returned as reference)
 	    Edge sifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
+		Edge random(Edge in, std::map<unsigned short, unsigned short>& varMap);
 
 	    unsigned int size(const Edge& e);
 
@@ -322,7 +324,7 @@ namespace dd {
 
 	    // statistics and info
 	    void statistics();
-	    static void printInformation();		
+	    static void printInformation();
 	    unsigned int nodeCount(const Edge& e) const {
 			std::unordered_set<NodePtr> v;
 			return nodeCount(e, v);
