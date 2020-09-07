@@ -1741,30 +1741,33 @@ namespace dd {
 
         // exchange levels with the collected nodes
 	    Edge t[NEDGE][NEDGE]{}, newEdges[NEDGE]{};
-        for (auto& node : nodes) {
+        for (auto nodeit = nodes.begin(); nodeit != nodes.end(); ++nodeit) {
             // creating matrix T
             for (int x = 0; x < NEDGE; x++) {
                 for (int y = 0; y < NEDGE; y++) {
-                    if (node->e[y].p->v == i) {
-                        t[x][y] = node->e[y].p->e[x];
+                    if ((*nodeit)->e[y].p->v == i) {
+                        t[x][y] = (*nodeit)->e[y].p->e[x];
                         auto c = cn.getTempCachedComplex();
-                        CN::mul(c, node->e[y].p->e[x].w, node->e[y].w);
+                        CN::mul(c, (*nodeit)->e[y].p->e[x].w, (*nodeit)->e[y].w);
                         t[x][y].w = cn.lookup(c);
                     } else {
                         // edge pointing to a terminal or skipped variable
-                        t[x][y] = node->e[y];
+                        t[x][y] = (*nodeit)->e[y];
                     }
                 }
             }
 
+//            std::cout << "Node: " << (intptr_t) (*nodeit) << std::endl;
+
             // calculate old unique table hash key
 		    std::uintptr_t old_key = 0;
 		    for (unsigned int k = 0; k < NEDGE; ++k) {
-			    old_key += ((std::uintptr_t) (node->e[k].p) >> k)
-			           + ((std::uintptr_t) (node->e[k].w.r) >> k)
-			           + ((std::uintptr_t) (node->e[k].w.i) >> (k + 1));
+			    old_key += ((std::uintptr_t) ((*nodeit)->e[k].p) >> k)
+			           + ((std::uintptr_t) ((*nodeit)->e[k].w.r) >> k)
+			           + ((std::uintptr_t) ((*nodeit)->e[k].w.i) >> (k + 1));
 		    }
 		    old_key = old_key & HASHMASK;
+//			std::cout << "Old key: " << old_key << std::endl;
 
             // creating new nodes and appending corresponding edges
             // important: increment before decrementing
@@ -1772,41 +1775,73 @@ namespace dd {
                 newEdges[x] = makeNonterminal(static_cast<short>(i), t[x]);
                 incRef(newEdges[x]);
             }
-            for (auto & x : node->e)
+            for (auto & x : (*nodeit)->e)
                 decRef(x);
-            memcpy(node->e, newEdges, NEDGE * sizeof(Edge));
+            memcpy((*nodeit)->e, newEdges, NEDGE * sizeof(Edge));
+//            std::cout << "Linking: " << std::endl;
+//	        for (auto & x : (*nodeit)->e) {
+//		        std::cout << (intptr_t) x.p << "(" << x.w << "): ";
+//		        for (int y = 0; y < NEDGE; y++) {
+//					std::cout << (intptr_t) x.p->e[y].p << "(" << x.p->e[y].w << ") ";
+//		        }
+//		        std::cout << std::endl;
+//	        }
 
 		    // calculate new unique table hash key
 		    std::uintptr_t new_key = 0;
 		    for (unsigned int k = 0; k < NEDGE; ++k) {
-			    new_key += ((std::uintptr_t) (node->e[k].p) >> k)
-			           + ((std::uintptr_t) (node->e[k].w.r) >> k)
-			           + ((std::uintptr_t) (node->e[k].w.i) >> (k + 1));
+			    new_key += ((std::uintptr_t) ((*nodeit)->e[k].p) >> k)
+			           + ((std::uintptr_t) ((*nodeit)->e[k].w.r) >> k)
+			           + ((std::uintptr_t) ((*nodeit)->e[k].w.i) >> (k + 1));
 		    }
 		    new_key = new_key & HASHMASK;
+
+//		    std::cout << "New key: " << new_key << std::endl;
 
 		    if (old_key == new_key) /// assumption: same hash means nothing changed
 			    continue;
 
+//		    printUniqueTable(2);
+
 		    // find pointer to old collision chain
 		    NodePtr p = Unique[j][old_key];
-		    if (p == node) {
+		    if (p == (*nodeit)) {
 			    Unique[j][old_key] = p->next; // remove from beginning
 		    } else {
 			    while (p != nullptr) {
 			    	NodePtr oldp = p;
 			    	p = p->next;
-				    if (p == node) {
+				    if (p == (*nodeit)) {
 					    oldp->next = p->next; // remove node from this chain
 					    break;
 				    }
 			    }
 		    }
 
+//		    std::cout << "Node removed from old chain" << std::endl;
+//		    printUniqueTable(2);
+
 		    // add node to new collision chain
 		    p = Unique[j][new_key];
+//	        std::cout << "(*nodeit)->e: ";
+//	        for (auto & k : (*nodeit)->e) {
+//		        std::cout << (intptr_t) k.p << "(" << k.w << ") ";
+//	        }
+//	        std::cout << std::endl;
 		    while (p != nullptr) {
-			    if (std::memcmp(node->e, p->e, NEDGE * sizeof(Edge)) == 0) {
+//			    std::cout << (intptr_t) p << " p->e: ";
+//			    for (auto & k : p->e) {
+//				    std::cout << (intptr_t) k.p << "(" << k.w << ") ";
+//			    }
+//			    std::cout << std::endl;
+			    if (std::memcmp((*nodeit)->e, p->e, NEDGE * sizeof(Edge)) == 0) {
+			    	if (std::find(nodeit, nodes.end(), p) != nodes.end()) {
+//				    	std::cout << "Node already occurs but is scheduled for reordering. Should insert new" << std::endl;
+					    p = p->next;
+				    	continue;
+				    }
+
+//			    	std::cout << "Node already occurs in new collision chain as " << (intptr_t) p << " leading to " << std::endl;
 					// this exact node already occurs in the unique table
 					// replace all occurences of 'node' in the DD with the unique table entry
 					if (j == in.p->v) {
@@ -1822,7 +1857,7 @@ namespace dd {
 							q.pop();
 							if (e.p->v == j+1) {
 								for (auto& x: e.p->e) {
-									if (x.p == node) {
+									if (x.p == (*nodeit)) {
 										decRef(x);
 										x.p = p;
 										incRef(x);
@@ -1846,9 +1881,11 @@ namespace dd {
 		    }
 
 		    if (p == nullptr) { // reached end of collision chain and found no equivalent node
-			    node->next = Unique[j][new_key];
-			    Unique[j][new_key] = node;
-			    checkSpecialMatrices(node); // potentially every edge pointing to the new node has to be renormalized.
+			    (*nodeit)->next = Unique[j][new_key];
+			    Unique[j][new_key] = (*nodeit);
+			    checkSpecialMatrices((*nodeit)); // potentially every edge pointing to the new node has to be renormalized.
+//			    std::cout << "Node not found. Inserting new, leading to: " << std::endl;
+//				printUniqueTable(2);
 		    }
         }
         garbageCollect(); // could cause potential problems with big circuits
@@ -1885,7 +1922,6 @@ namespace dd {
     /// \param varMap stores the variable mapping (cf. dynamicReorder(...))
     /// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
     Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap) {
-        std::unordered_set<NodePtr> visited(activeNodeCount); // better than 2e6
         std::map<unsigned short, unsigned short> invVarMap{};
         std::queue<Edge> q{};
         const auto n = static_cast<short>(in.p->v + 1);
@@ -2007,7 +2043,6 @@ namespace dd {
     Edge Package::random(Edge in, std::map<unsigned short, unsigned short>& varMap) {
         int n = (in.p->v + 1);
         unsigned long min = activeNodeCount;
-        std::unordered_set<NodePtr> visited(activeNodeCount);
         std::queue<Edge> q{};
         int nodeCount = 0;
         std::srand(std::time(nullptr));
@@ -2048,13 +2083,15 @@ namespace dd {
     	for (int i = n-1; i >=0; --i) {
 		    auto& unique = Unique[i];
 		    std::cout << "\t" << i << ":" << std::endl;
-		    for (const auto& node: unique) {
-		    	auto p = node;
+		    for (size_t key=0; key<unique.size(); ++key) {
+		    	auto p = unique[key];
+			    if (unique[key] != nullptr)
+				    std::cout << key << ": ";
 		    	while (p != nullptr) {
 				    std::cout << "\t\t" << (uintptr_t)p << " " << p->ref << "\t";
 				    p = p->next;
 			    }
-		    	if (node != nullptr)
+		    	if (unique[key] != nullptr)
 		    	    std::cout << std::endl;
 		    }
 	    }
