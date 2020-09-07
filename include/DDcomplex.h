@@ -59,6 +59,7 @@ namespace dd {
 
         static ComplexTableEntry zeroEntry;
         static ComplexTableEntry oneEntry;
+        static ComplexTableEntry* moneEntryPointer;
 
         static constexpr unsigned short NBUCKET = 32768;
         static constexpr unsigned short CHUNK_SIZE = 2000;
@@ -133,6 +134,14 @@ namespace dd {
 
 		    return ar * ar + ai * ai;
 	    }
+	    static inline fp mag(const Complex& a) {
+	    	return std::sqrt(mag2(a));
+	    }
+	    static inline fp arg(const Complex& a) {
+		    auto ar = val(a.r);
+		    auto ai = val(a.i);
+		    return std::atan2(ai, ar);
+	    }
 	    static Complex conj(const Complex& a);
 	    static Complex neg(const Complex& a);
 
@@ -192,6 +201,7 @@ namespace dd {
 		    Cache_Avail->next->val = i;
         	return { Cache_Avail, Cache_Avail->next };
         }
+		
         inline Complex getCachedComplex() {
             assert(cacheCount >= 2);
             cacheCount -= 2;

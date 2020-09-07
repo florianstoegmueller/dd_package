@@ -33,7 +33,7 @@ namespace dd {
 	constexpr unsigned int GCLIMIT1 = 250000;                // first garbage collection limit
 	constexpr unsigned int GCLIMIT_INC = 0;                  // garbage collection limit increment
 	constexpr unsigned int MAXREFCNT = 4000000;     // max reference count (saturates at this value)
-	constexpr unsigned int NODECOUNT_BUCKETS = 2000000;
+	constexpr unsigned int NODECOUNT_BUCKETS = 200000;
 	constexpr unsigned short NBUCKET = 32768;                  // no. of hash table buckets; must be a power of 2
 	constexpr unsigned short HASHMASK = NBUCKET - 1;  // must be nbuckets-1
 	constexpr unsigned short CTSLOTS = 16384;         // no. of computed table slots
@@ -41,7 +41,7 @@ namespace dd {
 	constexpr unsigned short TTSLOTS = 2048;          // Toffoli table slots
 	constexpr unsigned short TTMASK = TTSLOTS - 1;    // must be TTSLOTS-1
 	constexpr unsigned short CHUNK_SIZE = 2000;
-	constexpr unsigned short MAXN = 225;                       // max no. of inputs
+	constexpr unsigned short MAXN = 128;                       // max no. of inputs
 
     typedef struct Node *NodePtr;
 
@@ -82,6 +82,8 @@ namespace dd {
         transp,
         conjTransp,
         kron,
+        noise,
+        noNoise,
         none
     };
 
@@ -118,6 +120,14 @@ namespace dd {
 		None, Sifting, Random
 	};
 
+	enum Mode {
+		Vector, Matrix, ModeCount
+	};
+
+	enum class BasisStates {
+		zero, one, plus, minus, right, left
+	};
+
     class Package {
 
     	static Node terminal;
@@ -131,11 +141,14 @@ namespace dd {
 	    std::array<std::array<NodePtr, NBUCKET>, MAXN> Unique{ };
 	    // Three types since different possibilities for complex numbers  (caused by caching)
 	    // weights of operands and result are from complex table (e.g., transpose, conjugateTranspose)
-	    std::array<CTentry1, CTSLOTS> CTable1{ };
+		std::array<std::array<CTentry1, CTSLOTS>, static_cast<int>(Mode::ModeCount)> CTable1{};
+
 	    // weights of operands are from complex table, weight of result from cache/ZERO (e.g., mult)
-	    std::array<CTentry2, CTSLOTS> CTable2{ };
+		std::array<std::array<CTentry2, CTSLOTS>, static_cast<int>(Mode::ModeCount)> CTable2{};
+
 	    // weights of operands and result are from cache/ZERO (e.g., add)
-	    std::array<CTentry3, CTSLOTS> CTable3{ };
+		std::array<std::array<CTentry3, CTSLOTS>, static_cast<int>(Mode::ModeCount)> CTable3{};
+
 	    // Toffoli gate table
 	    std::array<TTentry, TTSLOTS> TTable{ };
 	    // Identity matrix table
@@ -154,22 +167,21 @@ namespace dd {
 	    std::vector<ListElementPtr> allocated_list_chunks;
 	    std::vector<NodePtr> allocated_node_chunks;
 
-	    bool forceMatrixNormalization = false;
+		Mode mode;
+	    std::unordered_set<NodePtr> visited{NODECOUNT_BUCKETS}; // 2e6
 
 	    /// private helper routines
 	    void initComputeTable();
 	    NodePtr getNode();
 
-        Edge add2(Edge x, Edge y);
+
 	    Edge multiply2(Edge& x, Edge& y, unsigned short var);
-	    ComplexValue fidelity(Edge x, Edge y, int var);
+	    ComplexValue innerProduct(Edge x, Edge y, int var);
 	    Edge trace(Edge a, short v, const std::bitset<MAXN>& eliminate);
 	    Edge kronecker2(Edge x, Edge y);
 
 	    void checkSpecialMatrices(NodePtr p);
-	    Edge UTlookup(Edge& e);
-	    Edge CTlookup(const Edge& a, const Edge& b, CTkind which);
-	    void CTinsert(const Edge& a, const Edge& b, const Edge& r, CTkind which);
+	    Edge& UTlookup(Edge& e);
 
 	    static inline unsigned long CThash(const Edge& a, const Edge& b, const CTkind which) {
 		    const uintptr_t node_pointer = ((uintptr_t) a.p + (uintptr_t) b.p) >> 3u;
@@ -184,7 +196,7 @@ namespace dd {
 	    }
 	    static unsigned short TThash(unsigned short n, unsigned short t, const short line[]);
 
-	    unsigned int nodeCount(Edge e, std::unordered_set<NodePtr>& visited) const;
+	    unsigned int nodeCount(const Edge& e, std::unordered_set<NodePtr>& v) const;
 	    ComplexValue getVectorElement(Edge e, unsigned long long int element);
 	    ListElementPtr newListElement();
 
@@ -204,7 +216,7 @@ namespace dd {
         Package();
         ~Package();
 
-        void useMatrixNormalization(bool use) { forceMatrixNormalization = use; }
+        void setMode(Mode m) { mode = m; }
 
         // DD creation
         static inline Edge makeTerminal(const Complex& w) { return { terminalNode, w }; }
@@ -215,19 +227,25 @@ namespace dd {
 	    	return makeNonterminal(v, edge.data(), cached);
 	    };
 	    Edge makeZeroState(unsigned short n);
-	    Edge makeBasisState(unsigned short n, const std::bitset<64>& state);
+	    Edge makeBasisState(unsigned short n, const std::bitset<MAXN>& state);
+	    Edge makeBasisState(unsigned short n, const std::vector<BasisStates>& state);
 	    Edge makeIdent(short x, short y);
 	    Edge makeGateDD(const Matrix2x2& mat, unsigned short n, const short *line);
 	    Edge makeGateDD(const std::array<ComplexValue,NEDGE>& mat, unsigned short n, const std::array<short,MAXN>& line);
 
+        Edge CTlookup(const Edge& a, const Edge& b, CTkind which);
+        void CTinsert(const Edge& a, const Edge& b, const Edge& r, CTkind which);
+
 	    // operations on DDs
 	    Edge multiply(Edge x, Edge y);
 	    Edge add(Edge x, Edge y);
+        Edge add2(Edge x, Edge y);
 	    Edge transpose(const Edge& a);
 	    Edge conjugateTranspose(Edge a);
 	    Edge normalize(Edge& e, bool cached);
 	    Edge partialTrace(Edge a, const std::bitset<MAXN>& eliminate);
 	    ComplexValue trace(Edge a);
+		ComplexValue innerProduct(Edge x, Edge y);
 	    fp fidelity(Edge x, Edge y);
 	    Edge kronecker(Edge x, Edge y);
 	    Edge extend(Edge e, unsigned short h = 0, unsigned short l = 0);
@@ -255,17 +273,17 @@ namespace dd {
 	    /// 		the circuit operation "H q[0]" leads to the DD equivalent to "H q[varMap[0]]" = "H q[2]".
 	    ///			the qubits in the decision diagram are always ordered as n-1 > n-2 > ... > 1 > 0
 	    /// \param strat strategy to apply
-	    /// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
+	    /// \return the resulting decision diagram (and the changed variable map, which is returned as reference)
 	    Edge dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat = None);
 
 	    /// Apply sifting dynamic reordering to a decision diagram given the current variable map
 	    /// \param in decision diagram to apply sifting to
 	    /// \param varMap stores the variable mapping (cf. dynamicReorder(...))
-	    /// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
+	    /// \return the resulting decision diagram (and the changed variable map, which is returned as reference)
 	    Edge sifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge random(Edge in, std::map<unsigned short, unsigned short>& varMap);
 
-	    unsigned int size(Edge e) const;
+	    unsigned int size(const Edge& e);
 
 		/**
 		 * Get a single element of the vector or matrix represented by the dd with root edge e
@@ -296,19 +314,21 @@ namespace dd {
 	    Edge TTlookup(unsigned short n, unsigned short m, unsigned short t, const short line[]);
 
 	    // printing
-	    void printVector(Edge e);
+	    void printVector(const Edge& e);
 	    void printActive(int n);
-	    void printDD(Edge e, unsigned int limit);
+	    void printDD(const Edge& e, unsigned int limit);
 	    void printUniqueTable(unsigned short n);
 
 	    void toDot(Edge e, std::ostream& oss, bool isVector = false);
-	    static void toDot2(const Edge& e, std::ostream& oss, bool isVector = false, bool edgeLabels=false);
 	    void export2Dot(Edge basic, const std::string& outputFilename, bool isVector = false, bool show = true);
-	    static void export2Dot2(Edge basic, const std::string& outputFilename, bool isVector = false, bool edgeLabels=false, bool show = true);
 
 	    // statistics and info
 	    void statistics();
 	    static void printInformation();
+	    unsigned int nodeCount(const Edge& e) const {
+			std::unordered_set<NodePtr> v;
+			return nodeCount(e, v);
+		}
 
 	    // debugging - not normally used
 	    void debugnode(NodePtr p) const;
