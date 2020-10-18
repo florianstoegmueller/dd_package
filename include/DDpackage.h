@@ -117,7 +117,7 @@ namespace dd {
     };
 
 	enum DynamicReorderingStrategy {
-		None, Sifting, Random
+		None, Sifting, Random, Window3
 	};
 
 	enum Mode {
@@ -282,6 +282,8 @@ namespace dd {
 	    /// \return the resulting decision diagram (and the changed variable map, which is returned as reference)
 	    Edge sifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge random(Edge in, std::map<unsigned short, unsigned short>& varMap);
+		/// Window3 Reordering based on the CUDD package
+		Edge window3(Edge in, std::map<unsigned short, unsigned short>& varMap);
 
 	    unsigned int size(const Edge& e);
 
@@ -332,6 +334,13 @@ namespace dd {
 
 	    // debugging - not normally used
 	    void debugnode(NodePtr p) const;
+
+		inline void reset() {
+			Unique = {};
+			activeNodeCount = 0;
+			maxActive = 0;
+			initComputeTable();
+		}
 	};
 }
 #endif

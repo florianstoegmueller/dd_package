@@ -1799,7 +1799,7 @@ namespace dd {
 //		    std::cout << "New key: " << new_key << std::endl;
 
 		    if (old_key == new_key) /// assumption: same hash means nothing changed
-			    continue;
+                continue;
 
 //		    printUniqueTable(2);
 
@@ -1912,6 +1912,8 @@ namespace dd {
 				return sifting(in, varMap);
             case Random:
                 return random(in, varMap);
+            case Window3:
+                return window3(in, varMap);
 		}
 
 		return in;
@@ -2075,6 +2077,100 @@ namespace dd {
             }
         }
 
+        return in;
+    }
+
+    Edge Package::window3(Edge in,
+                          std::map<unsigned short, unsigned short>& varMap) {
+        std::map<unsigned short, unsigned short> invVarMap{};
+        int n = in.p->v;
+
+        for (const auto& i : varMap) invVarMap[i.second] = i.first;
+
+        for (int i = 0; i + 1 < n; i++) {
+            int x = i;
+            int y = x + 1;
+            int z = y + 1;
+            auto min = activeNodeCount;
+            int best = 1;  // ABC
+
+            in = exchange(in, x, y);  // BAC
+            auto tempVar = varMap[invVarMap[x]];
+            varMap[invVarMap[x]] = varMap[invVarMap[y]];
+            varMap[invVarMap[y]] = tempVar;
+            if (min > activeNodeCount) {
+                best = 2;
+                min = activeNodeCount;
+            }
+
+            in = exchange(in, y, z);  // BCA
+            tempVar = varMap[invVarMap[z]];
+            varMap[invVarMap[z]] = varMap[invVarMap[y]];
+            varMap[invVarMap[y]] = tempVar;
+            if (min > activeNodeCount) {
+                best = 3;
+                min = activeNodeCount;
+            }
+
+            in = exchange(in, x, y);  // CBA
+            tempVar = varMap[invVarMap[x]];
+            varMap[invVarMap[x]] = varMap[invVarMap[y]];
+            varMap[invVarMap[y]] = tempVar;
+            if (min > activeNodeCount) {
+                best = 4;
+                min = activeNodeCount;
+            }
+
+            in = exchange(in, y, z);  // CAB
+            tempVar = varMap[invVarMap[z]];
+            varMap[invVarMap[z]] = varMap[invVarMap[y]];
+            varMap[invVarMap[y]] = tempVar;
+            if (min > activeNodeCount) {
+                best = 5;
+                min = activeNodeCount;
+            }
+
+            in = exchange(in, x, y);  // ACB
+            tempVar = varMap[invVarMap[x]];
+            varMap[invVarMap[x]] = varMap[invVarMap[y]];
+            varMap[invVarMap[y]] = tempVar;
+            if (min > activeNodeCount) {
+                best = 6;
+                min = activeNodeCount;
+            }
+
+            switch (best) {
+                case 3:  // BCA
+                    in = exchange(in, y, z);
+                    tempVar = varMap[invVarMap[z]];
+                    varMap[invVarMap[z]] = varMap[invVarMap[y]];
+                    varMap[invVarMap[y]] = tempVar;
+                case 4:  // CBA
+                    in = exchange(in, x, y);
+                    tempVar = varMap[invVarMap[x]];
+                    varMap[invVarMap[x]] = varMap[invVarMap[y]];
+                    varMap[invVarMap[y]] = tempVar;
+                case 1:  // ABC
+                    in = exchange(in, y, z);
+                    tempVar = varMap[invVarMap[z]];
+                    varMap[invVarMap[z]] = varMap[invVarMap[y]];
+                    varMap[invVarMap[y]] = tempVar;
+                case 6:  // ACB
+                    break;
+                case 2:  // BAC
+                    in = exchange(in, y, z);
+                    tempVar = varMap[invVarMap[z]];
+                    varMap[invVarMap[z]] = varMap[invVarMap[y]];
+                    varMap[invVarMap[y]] = tempVar;
+                case 5:  // CAB
+                    in = exchange(in, x, y);
+                    tempVar = varMap[invVarMap[x]];
+                    varMap[invVarMap[x]] = varMap[invVarMap[y]];
+                    varMap[invVarMap[y]] = tempVar;
+                default:
+                    break;
+            }
+        }
         return in;
     }
 
