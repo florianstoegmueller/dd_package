@@ -11,8 +11,9 @@ namespace dd {
 	ComplexTableEntry* ComplexNumbers::moneEntryPointer{(ComplexTableEntry *) (((uintptr_t) (&oneEntry)) | 1u)};
 	constexpr Complex ComplexNumbers::ONE;
 	constexpr Complex ComplexNumbers::ZERO;
+	fp ComplexNumbers::TOLERANCE = 1e-13l;
 
-    ComplexNumbers::ComplexNumbers() {
+	ComplexNumbers::ComplexNumbers() {
         Cache_Avail_Initial_Pointer = new ComplexTableEntry[INIT_SIZE * 6];
 	    Cache_Avail = Cache_Avail_Initial_Pointer;
 
@@ -124,9 +125,13 @@ namespace dd {
 	    }
 	    std::cout << "\tComplex table has " << nentries << " entries\n";
 	    std::cout << "\tLargest number of entries in bucket: " << max << "\n";
+	    std::cout << "\tCT Lookups (total): " << ct_calls << "\n";
+	    std::cout << "\tCT Lookups (misses): " << ct_miss << "\n";
+
     }
 
 	ComplexTableEntry *ComplexNumbers::lookupVal(const fp& val) {
+        ct_calls++;
         assert(!std::isnan(val));
 
         const auto key = getKey(val);
@@ -161,6 +166,7 @@ namespace dd {
             }
         }
 
+        ct_miss++;
 		auto r = getComplexTableEntry();
 		r->val = val;
         r->next = ComplexTable[key];

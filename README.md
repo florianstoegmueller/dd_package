@@ -1,10 +1,12 @@
 [![Build Status](https://travis-ci.com/iic-jku/dd_package.svg?branch=master)](https://travis-ci.com/iic-jku/dd_package)
 [![codecov](https://codecov.io/gh/iic-jku/dd_package/branch/master/graph/badge.svg)](https://codecov.io/gh/iic-jku/dd_package)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![toolset: JKQ](https://img.shields.io/badge/toolset-JKQ-blue)](https://github.com/iic-jku/jkq)
 
-# A Package for Decision Diagrams Written in C++
 
-A DD package tailored to quantum computing by the [Institute for Integrated Circuits](http://iic.jku.at/eda/) at the [Johannes Kepler University Linz](https://jku.at).
+# JKQ DD Package - A Package for Decision Diagrams Written in C++
+
+A DD package tailored to quantum computing by the [Institute for Integrated Circuits](http://iic.jku.at/eda/) at the [Johannes Kepler University Linz](https://jku.at). This package is part of the [JKQ toolset](https://github.com/iic-jku/jkq).
 
 Developers: Alwin Zulehner, Stefan Hillmich, Lukas Burgholzer, and Robert Wille
 
@@ -47,8 +49,8 @@ For implementing more complex functionality which requires garbage collection, b
 
 ### System Requirements
 
-Building (and running) is continuously tested under Linux (Ubuntu 18.04) using gcc-7.4, gcc-10 and clang-9, MacOS (Catalina 10.15) using AppleClang and gcc-10, and Windows using MSVC 15.9. 
-However, the implementation should be compatible with any current C++ compiler supporting C++11 and a minimum CMake version of 3.10.
+Building (and running) is continuously tested under Linux (Ubuntu 20.04) using gcc-9.3, gcc-10 and clang-11, MacOS (Catalina 10.15) using AppleClang and gcc-10, and Windows using MSVC 15.9. 
+However, the implementation should be compatible with any current C++ compiler supporting C++14 and a minimum CMake version of 3.10.
 
 It is recommended (although not required) to have [GraphViz](https://www.graphviz.org) installed for visualization purposes.
   

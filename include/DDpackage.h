@@ -17,7 +17,6 @@
 #include <iostream>
 #include <map>
 #include <queue>
-#include <numeric>
 #include <set>
 
 #include "DDcomplex.h"
@@ -43,6 +42,10 @@ namespace dd {
 	constexpr unsigned short CHUNK_SIZE = 2000;
 	constexpr unsigned short MAXN = 128;                       // max no. of inputs
 
+	enum ComputeMatrixPropertiesMode {
+		Disabled, Enabled, Recompute
+	};
+
     typedef struct Node *NodePtr;
 
     struct Edge {
@@ -53,9 +56,11 @@ namespace dd {
     struct Node {
 	    NodePtr next;         // link for unique table and available space chain
 	    Edge e[NEDGE];     // edges out of this node
+	    Complex normalizationFactor; // stores normalization factor
 	    unsigned int ref;       // reference count
 	    short v;        // variable index (nonterminal) value (-1 for terminal)
 	    bool ident, symm; // special matrices flags
+	    ComputeMatrixPropertiesMode computeMatrixProperties; // indicates whether to compute matrix properties
     };
 
     // list definitions for breadth first traversals (e.g. printing)
@@ -82,6 +87,7 @@ namespace dd {
         transp,
         conjTransp,
         kron,
+        renormalize,
         noise,
         noNoise,
         none
@@ -154,14 +160,15 @@ namespace dd {
 	    // Identity matrix table
 	    std::array<Edge, MAXN> IdTable{ };
 
-	    unsigned int currentNodeGCLimit;              // current garbage collection limit
-	    unsigned int currentComplexGCLimit;         // current complex garbage collection limit
-	    std::array<int, MAXN> active{ };              // number of active nodes for each variable
-	    unsigned long nodecount = 0;                // node count in unique table
-	    unsigned long peaknodecount = 0;            // records peak node count in unique table
+	    unsigned int currentNodeGCLimit;                // current garbage collection limit
+	    unsigned int currentComplexGCLimit;             // current complex garbage collection limit
+		std::array<int, MAXN> active{ };                // number of active nodes for each variable
+	    unsigned long nodecount = 0;                    // node count in unique table
+	    unsigned long peaknodecount = 0;                // records peak node count in unique table
+		unsigned long unnormalizedNodes = 0;     // active nodes that need renormalization
 
-	    std::array<unsigned long, 7> nOps{};                     // operation counters
-	    std::array<unsigned long, 7> CTlook{}, CThit{};      // counters for gathering compute table hit stats
+	    std::array<unsigned long, 10> nOps{};            // operation counters
+	    std::array<unsigned long, 10> CTlook{}, CThit{}; // counters for gathering compute table hit stats
         unsigned long UTcol=0, UTmatch=0, UTlookups=0;  // counter for collisions / matches in hash tables
 
 	    std::vector<ListElementPtr> allocated_list_chunks;
@@ -169,6 +176,7 @@ namespace dd {
 
 		Mode mode;
 	    std::unordered_set<NodePtr> visited{NODECOUNT_BUCKETS}; // 2e6
+	    ComputeMatrixPropertiesMode computeMatrixProperties = Enabled; // enable/disable computation of matrix properties
 
 	    /// private helper routines
 	    void initComputeTable();
@@ -217,6 +225,7 @@ namespace dd {
         ~Package();
 
         void setMode(Mode m) { mode = m; }
+        static void setComplexNumberTolerance(fp tol) { CN::setTolerance(tol); }
 
         // DD creation
         static inline Edge makeTerminal(const Complex& w) { return { terminalNode, w }; }
@@ -250,39 +259,19 @@ namespace dd {
 	    Edge kronecker(Edge x, Edge y);
 	    Edge extend(Edge e, unsigned short h = 0, unsigned short l = 0);
 
-	    /// exchange levels i and j of a decision diagram by pointer manipulation.
-	    /// base case: j = i +/- 1 -> exchange pointers accordingly
-	    /// general case: perform successive nearest-neighbour exchanges until i and j are swapped.
-	    /// \param in decision diagram to operate on
-	    /// \param i first index
-	    /// \param j second index
-	    /// \return decision diagram with level i and j exchanged
-	    /// 		note that the nodes in the resulting decision diagram shall still follow the original ordering
-	    /// 		n-1 > n-2 > ... > 1 > 0 from top to bottom.
-	    ///			the caller of this function is responsible for keeping track of the variable exchanges (cf. dynamicReorder(...))
-	    Edge exchange(Edge in, unsigned short i, unsigned short j);
-		Edge exchangeBaseCase(Edge in, unsigned short i, unsigned short j);
-
-	    /// Dynamically reorder a given decision diagram with the current variable map using the specific strategy
-	    /// \param in decision diagram to reorder
-	    /// \param varMap stores the variable mapping. varMap[circuit qubit] = corresponding DD qubit, e.g.
-	    ///			given the varMap (reversed var. order):
-	    /// 			0->2,
-	    /// 			1->1,
-	    /// 			2->0
-	    /// 		the circuit operation "H q[0]" leads to the DD equivalent to "H q[varMap[0]]" = "H q[2]".
-	    ///			the qubits in the decision diagram are always ordered as n-1 > n-2 > ... > 1 > 0
-	    /// \param strat strategy to apply
-	    /// \return the resulting decision diagram (and the changed variable map, which is returned as reference)
+		// functions for dynamic reordering
+		void recomputeMatrixProperties(Edge in);
+		void markForMatrixPropertyRecomputation(Edge in);
+		void resetNormalizationFactor(Edge in, Complex defaultValue);
+		Edge renormalize(Edge in);
+		Edge renormalize2(Edge in);
+	    void reuseNonterminal(short v, const Edge *edge, NodePtr p);
+	    void exchange(unsigned short i, unsigned short j);
+	    void exchangeBaseCase(unsigned short i);
+	    void exchangeBaseCase2(NodePtr p, unsigned short i);
 	    Edge dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat = None);
-
-	    /// Apply sifting dynamic reordering to a decision diagram given the current variable map
-	    /// \param in decision diagram to apply sifting to
-	    /// \param varMap stores the variable mapping (cf. dynamicReorder(...))
-	    /// \return the resulting decision diagram (and the changed variable map, which is returned as reference)
 	    Edge sifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge random(Edge in, std::map<unsigned short, unsigned short>& varMap);
-		/// Window3 Reordering based on the CUDD package
 		Edge window3(Edge in, std::map<unsigned short, unsigned short>& varMap);
 
 	    unsigned int size(const Edge& e);
@@ -339,6 +328,8 @@ namespace dd {
 			Unique = {};
 			activeNodeCount = 0;
 			maxActive = 0;
+			for (unsigned short q=0; q<MAXN; ++q)
+				active[q] = 0;
 			initComputeTable();
 		}
 	};

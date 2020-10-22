@@ -84,7 +84,7 @@ namespace dd {
     	constexpr static Complex ONE{ (&oneEntry), (&zeroEntry) };
 
         long cacheCount = INIT_SIZE * 6;
-	    static constexpr fp TOLERANCE = 1e-13l;
+	    static fp TOLERANCE;
 	    static constexpr unsigned int GCLIMIT1 = 100000;
 	    static constexpr unsigned int GCLIMIT_INC = 0;
 
@@ -95,9 +95,15 @@ namespace dd {
 	    ComplexChunk *chunks = nullptr;
 
 	    unsigned int count;
+	    unsigned long ct_calls = 0;
+	    unsigned long ct_miss = 0;
 
 	    ComplexNumbers();
 	    ~ComplexNumbers();
+
+	    static void setTolerance(fp tol) {
+	    	TOLERANCE = tol;
+	    }
 
 	    // operations on complex numbers
 	    // meanings are self-evident from the names
