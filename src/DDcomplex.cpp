@@ -8,10 +8,12 @@
 namespace dd {
 	ComplexTableEntry ComplexNumbers::zeroEntry{0L, nullptr, 1};
 	ComplexTableEntry ComplexNumbers::oneEntry{1L, nullptr, 1 };
+	ComplexTableEntry* ComplexNumbers::moneEntryPointer{(ComplexTableEntry *) (((uintptr_t) (&oneEntry)) | 1u)};
 	constexpr Complex ComplexNumbers::ONE;
 	constexpr Complex ComplexNumbers::ZERO;
+	fp ComplexNumbers::TOLERANCE = 1e-13l;
 
-    ComplexNumbers::ComplexNumbers() {
+	ComplexNumbers::ComplexNumbers() {
         Cache_Avail_Initial_Pointer = new ComplexTableEntry[INIT_SIZE * 6];
 	    Cache_Avail = Cache_Avail_Initial_Pointer;
 
@@ -123,9 +125,13 @@ namespace dd {
 	    }
 	    std::cout << "\tComplex table has " << nentries << " entries\n";
 	    std::cout << "\tLargest number of entries in bucket: " << max << "\n";
+	    std::cout << "\tCT Lookups (total): " << ct_calls << "\n";
+	    std::cout << "\tCT Lookups (misses): " << ct_miss << "\n";
+
     }
 
 	ComplexTableEntry *ComplexNumbers::lookupVal(const fp& val) {
+        ct_calls++;
         assert(!std::isnan(val));
 
         const auto key = getKey(val);
@@ -160,6 +166,7 @@ namespace dd {
             }
         }
 
+        ct_miss++;
 		auto r = getComplexTableEntry();
 		r->val = val;
         r->next = ComplexTable[key];
@@ -170,22 +177,56 @@ namespace dd {
     }
 
     Complex ComplexNumbers::lookup(const Complex &c) {
-        if (equalsZero(c))
+    	if(c == ZERO) {
     		return ZERO;
-        if (equalsOne(c))
-		    return ONE;
+    	}
+    	if (c == ONE) {
+    		return ONE;
+    	}
 
-        bool sign_r = std::signbit(c.r->val);
-        bool sign_i = std::signbit(c.i->val);
+    	auto valr = val(c.r);
+    	auto vali = val(c.i);
+    	auto absr = std::abs(valr);
+    	auto absi = std::abs(vali);
+    	Complex ret{};
 
-        if (c.r->val == 0) {
-            sign_r = false;
-        }
-        if (c.i->val == 0) {
-            sign_i = false;
-        }
+    	if(absi < TOLERANCE) {
+    		if (absr < TOLERANCE)
+    			return ZERO;
+    		if (std::abs(valr-1) < TOLERANCE) {
+    			return ONE;
+    		}
+    		if (std::abs(valr+1) < TOLERANCE) {
+    			return {moneEntryPointer, &zeroEntry};
+    		}
+    		ret.i = &zeroEntry;
+		    bool sign_r = std::signbit(valr);
+			ret.r = lookupVal(absr);
+		    if (sign_r)
+			    ret.r = (ComplexTableEntry *) (((uintptr_t) (ret.r)) | 1u);
+		    return ret;
+	    }
 
-	    Complex ret{ lookupVal(std::abs(val(c.r))), lookupVal(std::abs(val(c.i))) };
+    	if (absr < TOLERANCE) {
+		    if (std::abs(vali-1) < TOLERANCE) {
+		    	return {&zeroEntry, &oneEntry};
+		    }
+		    if (std::abs(vali+1) < TOLERANCE) {
+			    return {&zeroEntry, moneEntryPointer};
+		    }
+		    ret.r = &zeroEntry;
+		    bool sign_i = std::signbit(vali);
+			ret.i = lookupVal(absi);
+			if (sign_i)
+				ret.i = (ComplexTableEntry *) (((uintptr_t) (ret.i)) | 1u);
+			return ret;
+	    }
+
+        bool sign_r = std::signbit(valr);
+        bool sign_i = std::signbit(vali);
+
+	    ret.r = lookupVal(absr);
+	    ret.i = lookupVal(absi);
 
         //Store sign bit in pointers
         if (sign_r) {
@@ -199,20 +240,53 @@ namespace dd {
     }
 
 	Complex ComplexNumbers::lookup(const fp& r, const fp& i) {
-        if (std::fabs(i) < TOLERANCE) {
-    		if (std::abs(r-1L)< TOLERANCE)
-			    return ONE;
-    		else if (std::abs(r) < TOLERANCE)
-			    return ZERO;
-        }
+		auto absr = std::abs(r);
+		auto absi = std::abs(i);
+		Complex ret{};
 
-		Complex ret{ lookupVal(std::abs(r)), lookupVal(std::abs(i)) };
+		if(absi < TOLERANCE) {
+			if (absr < TOLERANCE)
+				return ZERO;
+			if (std::abs(r-1) < TOLERANCE) {
+				return ONE;
+			}
+			if (std::abs(r+1) < TOLERANCE) {
+				return {moneEntryPointer, &zeroEntry};
+			}
+			ret.i = &zeroEntry;
+			bool sign_r = std::signbit(r);
+			ret.r = lookupVal(absr);
+			if (sign_r)
+				ret.r = (ComplexTableEntry *) (((uintptr_t) (ret.r)) | 1u);
+			return ret;
+		}
+
+		if (absr < TOLERANCE) {
+			if (std::abs(i-1) < TOLERANCE) {
+				return {&zeroEntry, &oneEntry};
+			}
+			if (std::abs(i+1) < TOLERANCE) {
+				return {&zeroEntry, moneEntryPointer};
+			}
+			ret.r = &zeroEntry;
+			bool sign_i = std::signbit(i);
+			ret.i = lookupVal(absi);
+			if (sign_i)
+				ret.i = (ComplexTableEntry *) (((uintptr_t) (ret.i)) | 1u);
+			return ret;
+		}
+
+		bool sign_r = std::signbit(r);
+		bool sign_i = std::signbit(i);
+
+		ret.r = lookupVal(absr);
+		ret.i = lookupVal(absi);
 
 		//Store sign bit in pointers
-		if (r < 0) {
+		if (sign_r) {
 			ret.r = (ComplexTableEntry *) (((uintptr_t) (ret.r)) | 1u);
 		}
-		if (i < 0) {
+		if (sign_i) {
 			ret.i = (ComplexTableEntry *) (((uintptr_t) (ret.i)) | 1u);
 		}
 
@@ -298,7 +372,7 @@ namespace dd {
         auto cmag = br * br + bi * bi;
 
         r.r->val = (ar * br + ai * bi) / cmag;
-        r.i->val = (-ar * bi + ai * br) / cmag;
+        r.i->val = (ai * br - ar * bi) / cmag;
     }
 
     void ComplexNumbers::garbageCollect() {
@@ -331,7 +405,7 @@ namespace dd {
         }
     }
 
-	int ComplexNumbers::cacheSize() {
+	int ComplexNumbers::cacheSize() const {
 		ComplexTableEntry *p = Cache_Avail;
 		int size = 0;
 
@@ -399,7 +473,7 @@ namespace dd {
 			return;
 		}
 
-		if (m == 0) { // +- sqrt(2)
+		if (m == 0) { // +- 1/sqrt(2)
 			if (imaginary) {
 				os << (std::signbit(r) ? "-" : "+") << u8"\u221a\u00bdi";
 			} else {

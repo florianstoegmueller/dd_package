@@ -59,6 +59,7 @@ namespace dd {
 
         static ComplexTableEntry zeroEntry;
         static ComplexTableEntry oneEntry;
+        static ComplexTableEntry* moneEntryPointer;
 
         static constexpr unsigned short NBUCKET = 32768;
         static constexpr unsigned short CHUNK_SIZE = 2000;
@@ -83,7 +84,7 @@ namespace dd {
     	constexpr static Complex ONE{ (&oneEntry), (&zeroEntry) };
 
         long cacheCount = INIT_SIZE * 6;
-	    static constexpr fp TOLERANCE = 1e-13l;
+	    static fp TOLERANCE;
 	    static constexpr unsigned int GCLIMIT1 = 100000;
 	    static constexpr unsigned int GCLIMIT_INC = 0;
 
@@ -94,9 +95,15 @@ namespace dd {
 	    ComplexChunk *chunks = nullptr;
 
 	    unsigned int count;
+	    unsigned long ct_calls = 0;
+	    unsigned long ct_miss = 0;
 
 	    ComplexNumbers();
 	    ~ComplexNumbers();
+
+	    static void setTolerance(fp tol) {
+	    	TOLERANCE = tol;
+	    }
 
 	    // operations on complex numbers
 	    // meanings are self-evident from the names
@@ -132,6 +139,14 @@ namespace dd {
 		    auto ai = val(a.i);
 
 		    return ar * ar + ai * ai;
+	    }
+	    static inline fp mag(const Complex& a) {
+	    	return std::sqrt(mag2(a));
+	    }
+	    static inline fp arg(const Complex& a) {
+		    auto ar = val(a.r);
+		    auto ai = val(a.i);
+		    return std::atan2(ai, ar);
 	    }
 	    static Complex conj(const Complex& a);
 	    static Complex neg(const Complex& a);
@@ -192,6 +207,7 @@ namespace dd {
 		    Cache_Avail->next->val = i;
         	return { Cache_Avail, Cache_Avail->next };
         }
+		
         inline Complex getCachedComplex() {
             assert(cacheCount >= 2);
             cacheCount -= 2;
@@ -215,7 +231,7 @@ namespace dd {
         void printComplexTable();
         void statistics();
 
-	    int cacheSize();
+	    int cacheSize() const;
     };
 
 	std::ostream& operator<<(std::ostream& os, const Complex& c);
