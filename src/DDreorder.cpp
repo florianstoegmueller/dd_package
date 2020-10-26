@@ -236,7 +236,9 @@ namespace dd {
 			case None: return in;
 			case Sifting: return sifting(in, varMap);
 			case Random: return random(in, varMap);
+			case Window2: return window2(in, varMap);
 			case Window3: return window3(in, varMap);
+			case Window4: return window4(in, varMap);
 		}
 
 		return in;
@@ -375,7 +377,9 @@ namespace dd {
 		std::queue<Edge> q{ };
 		int nodeCount = 0;
 		std::srand(std::time(nullptr));
+		Edge root{in};
 
+		computeMatrixProperties = Disabled;
 		visited.clear();
 		q.push(in);
 		while (!q.empty()) {
@@ -402,8 +406,68 @@ namespace dd {
 			} else {
 				exchange(varMap[j], varMap[i]);
 			}
+
+			// there are nodes which need to renormalized
+			if (unnormalizedNodes > 0) {
+				auto oldroot = root;
+				root = renormalize(root);
+				incRef(root);
+				decRef(oldroot);
+				in.p = root.p;
+				in.w = root.w;
+				if (unnormalizedNodes > 0) {
+					std::cerr << "Renormalization failed. " << unnormalizedNodes << " nodes remaining." << std::endl;
+				}
+			}
+			computeMatrixProperties = Enabled;
+			markForMatrixPropertyRecomputation(root);
+			recomputeMatrixProperties(root);
 		}
 
+		return in;
+	}
+
+	Edge Package::window2(Edge in,
+	                      std::map<unsigned short, unsigned short>& varMap) {
+		std::map<unsigned short, unsigned short> invVarMap{ };
+		int n = in.p->v;
+		Edge root{in};
+
+		if (n<1) return in;
+
+		computeMatrixProperties = Disabled;
+		for (const auto& i : varMap) invVarMap[i.second] = i.first;
+
+		auto min = activeNodeCount;
+		for (int i = 1; i <= n; i++) {
+			exchangeBaseCase(i);
+
+			if (min > activeNodeCount) {
+				min = activeNodeCount;
+
+				auto temp = varMap[invVarMap[i]];
+				varMap[invVarMap[i]] = varMap[invVarMap[i+1]];
+				varMap[invVarMap[i+1]] = temp;
+			} else {
+				exchangeBaseCase(i);
+			}
+
+			// there are nodes which need to renormalized
+			if (unnormalizedNodes > 0) {
+				auto oldroot = root;
+				root = renormalize(root);
+				incRef(root);
+				decRef(oldroot);
+				in.p = root.p;
+				in.w = root.w;
+				if (unnormalizedNodes > 0) {
+					std::cerr << "Renormalization failed. " << unnormalizedNodes << " nodes remaining." << std::endl;
+				}
+			}
+			computeMatrixProperties = Enabled;
+			markForMatrixPropertyRecomputation(root);
+			recomputeMatrixProperties(root);
+		}
 		return in;
 	}
 
@@ -411,7 +475,11 @@ namespace dd {
 	                      std::map<unsigned short, unsigned short>& varMap) {
 		std::map<unsigned short, unsigned short> invVarMap{ };
 		int n = in.p->v;
+		Edge root{in};
 
+		if (n<2) return window2(in, varMap);
+
+		computeMatrixProperties = Disabled;
 		for (const auto& i : varMap) invVarMap[i.second] = i.first;
 
 		for (int i = 0; i + 1 < n; i++) {
@@ -472,19 +540,16 @@ namespace dd {
 					tempVar = varMap[invVarMap[z]];
 					varMap[invVarMap[z]] = varMap[invVarMap[y]];
 					varMap[invVarMap[y]] = tempVar;
-					break;
 				case 4:  // CBA
 					exchange(x, y);
 					tempVar = varMap[invVarMap[x]];
 					varMap[invVarMap[x]] = varMap[invVarMap[y]];
 					varMap[invVarMap[y]] = tempVar;
-					break;
 				case 1:  // ABC
 					exchange(y, z);
 					tempVar = varMap[invVarMap[z]];
 					varMap[invVarMap[z]] = varMap[invVarMap[y]];
 					varMap[invVarMap[y]] = tempVar;
-					break;
 				case 6:  // ACB
 					break;
 				case 2:  // BAC
@@ -492,9 +557,422 @@ namespace dd {
 					tempVar = varMap[invVarMap[z]];
 					varMap[invVarMap[z]] = varMap[invVarMap[y]];
 					varMap[invVarMap[y]] = tempVar;
-					break;
 				case 5:  // CAB
 					exchange(x, y);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				default:
+					break;
+			}
+
+			// there are nodes which need to renormalized
+			if (unnormalizedNodes > 0) {
+				auto oldroot = root;
+				root = renormalize(root);
+				incRef(root);
+				decRef(oldroot);
+				in.p = root.p;
+				in.w = root.w;
+				if (unnormalizedNodes > 0) {
+					std::cerr << "Renormalization failed. " << unnormalizedNodes << " nodes remaining." << std::endl;
+				}
+			}
+			computeMatrixProperties = Enabled;
+			markForMatrixPropertyRecomputation(root);
+			recomputeMatrixProperties(root);
+		}
+		return in;
+	}
+
+	Edge Package::window4(Edge in,
+	                      std::map<unsigned short, unsigned short>& varMap) {
+		std::map<unsigned short, unsigned short> invVarMap{ };
+		int n = in.p->v;
+		Edge root{in};
+
+		if (n<3) return window3(in, varMap);
+
+		computeMatrixProperties = Disabled;
+		for (const auto& i : varMap) invVarMap[i.second] = i.first;
+
+		for (int i = 0; i + 2 < n; i++) {
+			int w = i;
+			int x = w + 1;
+			int y = x + 1;
+			int z = y + 1;
+			int best;
+			auto min = activeNodeCount;
+
+			#define ABCD 1
+			best = ABCD;
+
+			#define BACD 7
+			exchange(w, x);
+			auto tempVar = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = varMap[invVarMap[w]];
+			varMap[invVarMap[w]] = tempVar;
+			if (min > activeNodeCount) {
+				best = BACD;
+				min = activeNodeCount;
+			}
+
+			#define BADC 13
+			exchange(y, z);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[z]];
+			varMap[invVarMap[z]] = tempVar;
+			if (min > activeNodeCount) {
+				best = BADC;
+				min = activeNodeCount;
+			}
+
+			#define ABDC 8
+			exchange(w, x);
+			tempVar = varMap[invVarMap[w]];
+			varMap[invVarMap[w]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = ABDC;
+				min = activeNodeCount;
+			}
+
+			#define ADBC 14
+			exchange(x, y);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = ADBC;
+				min = activeNodeCount;
+			}
+
+			#define ADCB 9
+			exchange(y, z);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[z]];
+			varMap[invVarMap[z]] = tempVar;
+			if (min > activeNodeCount) {
+				best = ADCB;
+				min = activeNodeCount;
+			}
+
+			#define DACB 15
+			exchange(w, x);
+			tempVar = varMap[invVarMap[w]];
+			varMap[invVarMap[w]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = DACB;
+				min = activeNodeCount;
+			}
+
+			#define DABC 20
+			exchange(y, z);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[z]];
+			varMap[invVarMap[z]] = tempVar;
+			if (min > activeNodeCount) {
+				best = DABC;
+				min = activeNodeCount;
+			}
+
+			#define DBAC 23
+			exchange(x, y);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = DBAC;
+				min = activeNodeCount;
+			}
+
+			#define BDAC 19
+			exchange(w, x);
+			tempVar = varMap[invVarMap[w]];
+			varMap[invVarMap[w]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = BDAC;
+				min = activeNodeCount;
+			}
+
+			#define BDCA 21
+			exchange(y, z);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[z]];
+			varMap[invVarMap[z]] = tempVar;
+			if (min > activeNodeCount) {
+				best = BDCA;
+				min = activeNodeCount;
+			}
+
+			#define DBCA 24
+			exchange(w, x);
+			tempVar = varMap[invVarMap[w]];
+			varMap[invVarMap[w]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = DBCA;
+				min = activeNodeCount;
+			}
+
+			#define DCBA 22
+			exchange(y, x);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = DCBA;
+				min = activeNodeCount;
+			}
+
+			#define DCAB 18
+			exchange(y, z);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[z]];
+			varMap[invVarMap[z]] = tempVar;
+			if (min > activeNodeCount) {
+				best = DCAB;
+				min = activeNodeCount;
+			}
+
+			#define CDAB 12
+			exchange(w, x);
+			tempVar = varMap[invVarMap[w]];
+			varMap[invVarMap[w]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = CDAB;
+				min = activeNodeCount;
+			}
+
+			#define CDBA 17
+			exchange(y, z);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[z]];
+			varMap[invVarMap[z]] = tempVar;
+			if (min > activeNodeCount) {
+				best = CDBA;
+				min = activeNodeCount;
+			}
+
+			#define CBDA 11
+			exchange(x, y);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = CBDA;
+				min = activeNodeCount;
+			}
+
+			#define BCDA 16
+			exchange(w, x);
+			tempVar = varMap[invVarMap[w]];
+			varMap[invVarMap[w]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = BCDA;
+				min = activeNodeCount;
+			}
+
+			#define BCAD 10
+			exchange(y, z);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[z]];
+			varMap[invVarMap[z]] = tempVar;
+			if (min > activeNodeCount) {
+				best = BCAD;
+				min = activeNodeCount;
+			}
+
+			#define CBAD 5
+			exchange(w, x);
+			tempVar = varMap[invVarMap[w]];
+			varMap[invVarMap[w]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = CBAD;
+				min = activeNodeCount;
+			}
+
+			#define CABD 3
+			exchange(y, x);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = CABD;
+				min = activeNodeCount;
+			}
+
+			#define CADB 6
+			exchange(y, z);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[z]];
+			varMap[invVarMap[z]] = tempVar;
+			if (min > activeNodeCount) {
+				best = CADB;
+				min = activeNodeCount;
+			}
+
+			#define ACDB 4
+			exchange(w, x);
+			tempVar = varMap[invVarMap[w]];
+			varMap[invVarMap[w]] = varMap[invVarMap[x]];
+			varMap[invVarMap[x]] = tempVar;
+			if (min > activeNodeCount) {
+				best = ACDB;
+				min = activeNodeCount;
+			}
+
+			#define ACBD 2
+			exchange(y, z);
+			tempVar = varMap[invVarMap[y]];
+			varMap[invVarMap[y]] = varMap[invVarMap[z]];
+			varMap[invVarMap[z]] = tempVar;
+			if (min > activeNodeCount) {
+				best = ACBD;
+				min = activeNodeCount;
+			}
+
+
+			switch (best) {
+				case DBCA:
+					exchange(y, z);
+					tempVar = varMap[invVarMap[z]];
+					varMap[invVarMap[z]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case BDCA:
+					exchange(y, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case CDBA:
+					exchange(w, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[w]];
+					varMap[invVarMap[w]] = tempVar;
+				case ADBC:
+					exchange(y, z);
+					tempVar = varMap[invVarMap[z]];
+					varMap[invVarMap[z]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case ABDC:
+					exchange(y, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case ACDB:
+					exchange(y, z);
+					tempVar = varMap[invVarMap[z]];
+					varMap[invVarMap[z]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case ACBD:
+					break;
+				case DCBA:
+					exchange(y, z);
+					tempVar = varMap[invVarMap[z]];
+					varMap[invVarMap[z]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case BCDA:
+					exchange(y, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case CBDA:
+					exchange(w, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[w]];
+					varMap[invVarMap[w]] = tempVar;
+					exchange(y, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+					exchange(y, z);
+					tempVar = varMap[invVarMap[z]];
+					varMap[invVarMap[z]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+					break;
+				case DBAC:
+					exchange(y, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case DCAB:
+					exchange(w, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[w]];
+					varMap[invVarMap[w]] = tempVar;
+				case DACB:
+					exchange(y, z);
+					tempVar = varMap[invVarMap[z]];
+					varMap[invVarMap[z]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case BACD:
+					exchange(y, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case CABD:
+					exchange(w, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[w]];
+					varMap[invVarMap[w]] = tempVar;
+					break;
+				case DABC:
+					exchange(y, z);
+					tempVar = varMap[invVarMap[z]];
+					varMap[invVarMap[z]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case BADC:
+					exchange(y, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case CADB:
+					exchange(w, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[w]];
+					varMap[invVarMap[w]] = tempVar;
+					exchange(y, z);
+					tempVar = varMap[invVarMap[z]];
+					varMap[invVarMap[z]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+					break;
+				case BDAC:
+					exchange(y, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case CDAB:
+					exchange(w, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[w]];
+					varMap[invVarMap[w]] = tempVar;
+				case ADCB:
+					exchange(y, z);
+					tempVar = varMap[invVarMap[z]];
+					varMap[invVarMap[z]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case ABCD:
+					exchange(y, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+					break;
+				case BCAD:
+					exchange(y, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[y]];
+					varMap[invVarMap[y]] = tempVar;
+				case CBAD:
+					exchange(w, x);
+					tempVar = varMap[invVarMap[x]];
+					varMap[invVarMap[x]] = varMap[invVarMap[w]];
+					varMap[invVarMap[w]] = tempVar;
+					exchange(y, x);
 					tempVar = varMap[invVarMap[x]];
 					varMap[invVarMap[x]] = varMap[invVarMap[y]];
 					varMap[invVarMap[y]] = tempVar;
@@ -502,6 +980,22 @@ namespace dd {
 				default:
 					break;
 			}
+
+			// there are nodes which need to renormalized
+			if (unnormalizedNodes > 0) {
+				auto oldroot = root;
+				root = renormalize(root);
+				incRef(root);
+				decRef(oldroot);
+				in.p = root.p;
+				in.w = root.w;
+				if (unnormalizedNodes > 0) {
+					std::cerr << "Renormalization failed. " << unnormalizedNodes << " nodes remaining." << std::endl;
+				}
+			}
+			computeMatrixProperties = Enabled;
+			markForMatrixPropertyRecomputation(root);
+			recomputeMatrixProperties(root);
 		}
 		return in;
 	}
