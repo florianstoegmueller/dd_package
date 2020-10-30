@@ -220,17 +220,17 @@ namespace dd {
 		reuseNonterminal(static_cast<short>(i), newEdges, p);
 	}
 
-/// Dynamically reorder a given decision diagram with the current variable map using the specific strategy
-/// \param in decision diagram to reorder
-/// \param varMap stores the variable mapping. varMap[circuit qubit] = corresponding DD qubit, e.g.
-///			given the varMap (reversed var. order):
-/// 			0->2,
-/// 			1->1,
-/// 			2->0
-/// 		the circuit operation "H q[0]" leads to the DD equivalent to "H q[varMap[0]]" = "H q[2]".
-///			the qubits in the decision diagram are always ordered as n-1 > n-2 > ... > 1 > 0
-/// \param strat strategy to apply
-/// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
+	/// Dynamically reorder a given decision diagram with the current variable map using the specific strategy
+	/// \param in decision diagram to reorder
+	/// \param varMap stores the variable mapping. varMap[circuit qubit] = corresponding DD qubit, e.g.
+	///			given the varMap (reversed var. order):
+	/// 			0->2,
+	/// 			1->1,
+	/// 			2->0
+	/// 		the circuit operation "H q[0]" leads to the DD equivalent to "H q[varMap[0]]" = "H q[2]".
+	///			the qubits in the decision diagram are always ordered as n-1 > n-2 > ... > 1 > 0
+	/// \param strat strategy to apply
+	/// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
 	Edge Package::dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat) {
 		switch (strat) {
 			case None: return in;
@@ -244,10 +244,10 @@ namespace dd {
 		return in;
 	}
 
-/// Apply sifting dynamic reordering to a decision diagram given the
-/// current variable map \param in decision diagram to apply sifting to
-/// \param varMap stores the variable mapping (cf. dynamicReorder(...))
-/// \return the resulting decision diagram (and the changed variable map and output permutation, which are returned as reference)
+	/// Apply sifting dynamic reordering to a decision diagram given the
+	/// current variable map \param in decision diagram to apply sifting to
+	/// \param varMap stores the variable mapping (cf. dynamicReorder(...))
+	/// \return the resulting decision diagram (and the changed varMap, which is returned as reference)
 	Edge Package::sifting(Edge in, std::map<unsigned short, unsigned short>& varMap) {
 		const auto n = static_cast<short>(in.p->v + 1);
 		std::vector<bool> free(n, true);
@@ -371,6 +371,9 @@ namespace dd {
 	/// First counts the number of nodes in the given DD.
 	/// Then a loop is executed nodeCount-many times and inside
 	/// this loop two randomly selcted levels are swap.
+	/// \param in decision diagram to operate on
+	/// \param varMap stores the variable mapping (cf. dynamicReorder(...))
+	/// \return the resulting decision diagram (and the changed varMap, which is returned as reference)
 	Edge Package::random(Edge in, std::map<unsigned short, unsigned short>& varMap) {
 		int n = (in.p->v + 1);
 		unsigned long min = activeNodeCount;
@@ -427,6 +430,12 @@ namespace dd {
 		return in;
 	}
 
+	/// Tries all permutations in a window of size 2.
+	/// Permutation with lowest node count is choosen.
+	/// Shifts this window from the bottom to the top.
+	/// \param in decision diagram to operate on
+	/// \param varMap stores the variable mapping (cf. dynamicReorder(...))
+	/// \return the resulting decision diagram (and the changed varMap, which is returned as reference)
 	Edge Package::window2(Edge in,
 	                      std::map<unsigned short, unsigned short>& varMap) {
 		std::map<unsigned short, unsigned short> invVarMap{ };
@@ -471,6 +480,12 @@ namespace dd {
 		return in;
 	}
 
+	/// Tries all permutations in a window of size 3.
+	/// Permutation with lowest node count is choosen.
+	/// Shifts this window from the bottom to the top.
+	/// \param in decision diagram to operate on
+	/// \param varMap stores the variable mapping (cf. dynamicReorder(...))
+	/// \return the resulting decision diagram (and the changed varMap, which is returned as reference)
 	Edge Package::window3(Edge in,
 	                      std::map<unsigned short, unsigned short>& varMap) {
 		std::map<unsigned short, unsigned short> invVarMap{ };
@@ -585,6 +600,12 @@ namespace dd {
 		return in;
 	}
 
+	/// Tries all permutations in a window of size 4.
+	/// Permutation with lowest node count is choosen.
+	/// Shifts this window from the bottom to the top.
+	/// \param in decision diagram to operate on
+	/// \param varMap stores the variable mapping (cf. dynamicReorder(...))
+	/// \return the resulting decision diagram (and the changed varMap, which is returned as reference)
 	Edge Package::window4(Edge in,
 	                      std::map<unsigned short, unsigned short>& varMap) {
 		std::map<unsigned short, unsigned short> invVarMap{ };

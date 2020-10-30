@@ -272,6 +272,7 @@ namespace dd {
 	    Edge dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat = None);
 	    Edge sifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge random(Edge in, std::map<unsigned short, unsigned short>& varMap);
+		// window reordering based on the CUDD package by Fabio Somenzi at the University of Colorado
 		Edge window2(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge window3(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge window4(Edge in, std::map<unsigned short, unsigned short>& varMap);
