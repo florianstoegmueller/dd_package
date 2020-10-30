@@ -123,7 +123,7 @@ namespace dd {
     };
 
 	enum DynamicReorderingStrategy {
-		None, Sifting, Random, Window3
+		None, Sifting, Random, Window2, Window3, Window4
 	};
 
 	enum Mode {
@@ -272,7 +272,10 @@ namespace dd {
 	    Edge dynamicReorder(Edge in, std::map<unsigned short, unsigned short>& varMap, DynamicReorderingStrategy strat = None);
 	    Edge sifting(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge random(Edge in, std::map<unsigned short, unsigned short>& varMap);
+		// window reordering based on the CUDD package by Fabio Somenzi at the University of Colorado
+		Edge window2(Edge in, std::map<unsigned short, unsigned short>& varMap);
 		Edge window3(Edge in, std::map<unsigned short, unsigned short>& varMap);
+		Edge window4(Edge in, std::map<unsigned short, unsigned short>& varMap);
 
 	    unsigned int size(const Edge& e);
 
